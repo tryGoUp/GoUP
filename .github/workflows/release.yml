@@ -1,0 +1,32 @@
+name: goreleaser
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/vanilla-os/pico:main
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+
+      - name: Test
+        run: go test -v ./...
+
+      - name: Build
+        run: go build -o goup cmd/goup/main.go
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          files: |
+            goup
