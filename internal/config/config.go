@@ -3,11 +3,13 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
 )
+
+// customLogDir is used to override the default log directory, e.g. for testing.
+var customLogDir string
 
 // SSLConfig represents the SSL configuration for a site.
 type SSLConfig struct {
@@ -42,6 +44,10 @@ func GetConfigDir() string {
 
 // GetLogDir returns the directory where log files are stored.
 func GetLogDir() string {
+	if customLogDir != "" {
+		return customLogDir
+	}
+
 	var logDir string
 	if xdgDataHome := os.Getenv("XDG_DATA_HOME"); xdgDataHome != "" {
 		logDir = filepath.Join(xdgDataHome, "goup", "logs")
@@ -56,7 +62,7 @@ func GetLogDir() string {
 // LoadConfig loads a configuration from a file.
 func LoadConfig(filePath string) (SiteConfig, error) {
 	var conf SiteConfig
-	data, err := ioutil.ReadFile(filePath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return conf, err
 	}
@@ -69,7 +75,7 @@ func LoadConfig(filePath string) (SiteConfig, error) {
 // LoadAllConfigs loads all configurations from the configuration directory.
 func LoadAllConfigs() ([]SiteConfig, error) {
 	configDir := GetConfigDir()
-	files, err := ioutil.ReadDir(configDir)
+	files, err := os.ReadDir(configDir)
 	if err != nil {
 		return nil, err
 	}
@@ -94,5 +100,10 @@ func (conf *SiteConfig) Save(filePath string) error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(filePath, data, 0644)
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// SetCustomLogDir allows setting a custom log directory for testing.
+func SetCustomLogDir(dir string) {
+	customLogDir = dir
 }
