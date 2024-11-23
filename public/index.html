@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>GoUP!</title>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            fetch(window.location.href, { method: 'HEAD' })
+                .then(response => {
+                    const domainName = response.headers.get('X-Domain-Name');
+                    if (domainName) {
+                        document.getElementById('domain-name').textContent = domainName;
+                    } else {
+                        document.getElementById('domain-name').textContent = 'Unknown Domain';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching headers:', error);
+                    document.getElementById('domain-name').textContent = 'Error';
+                });
+        });
+    </script>
+</head>
+
+<body>
+    <h1 id="domain-name">Loading...</h1>
+    <small>Served by GoUP!</small>
+</body>
+
+</html>
