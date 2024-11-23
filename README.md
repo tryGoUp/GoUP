@@ -166,7 +166,14 @@ goup start --tui
 
 ## Contributing
 
-I really appreciate any contributions you would like to make, whether it's a simple typo fix or a new feature. Feel free to open an issue or submit a pull request.
+I really appreciate any contributions you would like to make, whether it's a 
+simple typo fix or a new feature. Feel free to open an issue or submit a pull request.
+
+## Pro Tips
+
+You can use the `public/` directory in the repository as the root directory for
+your test sites. It contains a simple `index.html` file with a JS script that
+gets the website's title from the `X-Domain-Name` header (if set).
 
 ## License
 
