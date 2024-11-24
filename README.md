@@ -11,6 +11,7 @@ GoUP! is a minimal, tweakable web server written in Go. You can use it to serve 
 - Support for multiple domains and virtual hosting
 - Logging to both console and files - JSON formatted (structured logs)
 - Optional TUI interface for real-time monitoring
+- HTTP/2 and HTTP/3 support (not configurable, HTTP/1.1 is used for unencrypted connections, HTTP/2 and HTTP/3 for encrypted connections)
 
 ## Future Plans
 

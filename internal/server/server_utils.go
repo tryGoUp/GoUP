@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/quic-go/quic-go/http3"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -18,6 +19,9 @@ func createHTTPServer(conf config.SiteConfig, handler http.Handler) *http.Server
 		Handler:      handler,
 		ReadTimeout:  time.Duration(conf.RequestTimeout) * time.Second,
 		WriteTimeout: time.Duration(conf.RequestTimeout) * time.Second,
+		TLSConfig: &tls.Config{
+			NextProtos: []string{"h3", "h2", "http/1.1"},
+		},
 	}
 }
 
@@ -35,21 +39,25 @@ func startServerInstance(server *http.Server, conf config.SiteConfig, logger *lo
 				return
 			}
 
-			cert, err := tls.LoadX509KeyPair(conf.SSL.Certificate, conf.SSL.Key)
-			if err != nil {
-				logger.Errorf("Error loading SSL certificates for %s: %v", conf.Domain, err)
-				return
-			}
+			logger.Infof("Serving %s on HTTPS port %d with HTTP/2 and HTTP/3 support", conf.Domain, conf.Port)
 
-			server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+			// HTTP/1.1 and HTTP/2 server are also started to keep compatibility
+			// with clients that do not support HTTP/3
+			go func() {
+				if err := server.ListenAndServeTLS(conf.SSL.Certificate, conf.SSL.Key); err != nil && err != http.ErrServerClosed {
+					logger.Errorf("HTTP/1.1 and HTTP/2 server error for %s: %v", conf.Domain, err)
+				}
+			}()
 
-			logger.Infof("Serving %s on HTTPS port %d", conf.Domain, conf.Port)
-			if err := server.ListenAndServeTLS("", ""); err != nil {
-				logger.Errorf("Server error for %s: %v", conf.Domain, err)
+			// Start HTTP/3 server using QUIC
+			quicAddr := fmt.Sprintf(":%d", conf.Port)
+			err := http3.ListenAndServeQUIC(quicAddr, conf.SSL.Certificate, conf.SSL.Key, server.Handler)
+			if err != nil && err != http.ErrServerClosed {
+				logger.Errorf("HTTP/3 server error for %s: %v", conf.Domain, err)
 			}
 		} else {
 			logger.Infof("Serving on HTTP port %d", conf.Port)
-			if err := server.ListenAndServe(); err != nil {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				logger.Errorf("Server error on port %d: %v", conf.Port, err)
 			}
 		}
