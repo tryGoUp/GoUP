@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/plugin"
 	"github.com/mirkobrombin/goup/internal/server"
 	"github.com/spf13/cobra"
 )
@@ -33,8 +34,8 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(pluginsCmd)
 
-	// Add the --tui flag to the start command
 	startCmd.Flags().BoolVarP(&tuiMode, "tui", "t", false, "Enable TUI mode")
 }
 
@@ -202,4 +203,23 @@ func list(cmd *cobra.Command, args []string) {
 	for _, conf := range configs {
 		fmt.Printf("- %s (port %d)\n", conf.Domain, conf.Port)
 	}
+}
+
+var pluginsCmd = &cobra.Command{
+	Use:   "plugins",
+	Short: "List all registered plugins",
+	Run: func(cmd *cobra.Command, args []string) {
+		pluginManager := plugin.GetPluginManagerInstance()
+		plugins := pluginManager.GetRegisteredPlugins()
+
+		if len(plugins) == 0 {
+			fmt.Println("No plugins registered.")
+			return
+		}
+
+		fmt.Println("Registered plugins:")
+		for _, name := range plugins {
+			fmt.Printf("- %s\n", name)
+		}
+	},
 }

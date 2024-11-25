@@ -121,7 +121,7 @@ Each site configuration is represented by a JSON file and meets the following st
   "port": 8080,
   "root_directory": "/path/to/root",
   "custom_headers": {
-    "X-Custom-Header": "Value"
+      "X-Domain-Name": "example.com"
   },
   "proxy_pass": "http://localhost:3000",
   "ssl": {

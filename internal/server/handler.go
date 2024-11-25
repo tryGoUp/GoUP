@@ -18,7 +18,7 @@ func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string
 	var handler http.Handler
 
 	if conf.ProxyPass != "" {
-		// Set up reverse proxy handler if ProxyPass is set
+		// Set up reverse proxy handler if ProxyPass is set.
 		proxyURL, err := url.Parse(conf.ProxyPass)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy URL: %v", err)
@@ -29,7 +29,7 @@ func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string
 			proxy.ServeHTTP(w, r)
 		})
 	} else {
-		// Serve static files
+		// Serve static files from the root directory.
 		fs := http.FileServer(http.Dir(conf.RootDirectory))
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			addCustomHeaders(w, conf.CustomHeaders)
@@ -37,9 +37,13 @@ func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string
 		})
 	}
 
-	// Wrap with logging and timeout middleware
+	// Set up site-specific middleware.
+	mwManager := middleware.NewMiddlewareManager()
 	timeout := time.Duration(conf.RequestTimeout) * time.Second
-	handler = middleware.TimeoutMiddleware(timeout, middleware.LoggingMiddleware(logger, conf.Domain, identifier, handler))
+	mwManager.Use(middleware.TimeoutMiddleware(timeout))
+	mwManager.Use(middleware.LoggingMiddleware(logger, conf.Domain, identifier))
+
+	handler = mwManager.Apply(handler)
 
 	return handler, nil
 }
@@ -50,7 +54,7 @@ func addCustomHeaders(w http.ResponseWriter, headers map[string]string) {
 		w.Header().Set(key, value)
 	}
 
-	// Expose the custom headers to the client. Should be safe (?)
+	// Expose custom headers to the client.
 	exposeHeaders := []string{}
 	for key := range headers {
 		exposeHeaders = append(exposeHeaders, key)

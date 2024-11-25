@@ -11,25 +11,29 @@ import (
 
 func TestLoggingMiddleware(t *testing.T) {
 	logger := log.New()
-	logger.Out = httptest.NewRecorder() // Discard output on purpose
+	logger.Out = httptest.NewRecorder() // Discard output for testing
 
 	domain := "example.com"
 	identifier := "test"
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
-	middlewareHandler := LoggingMiddleware(logger, domain, identifier, handler)
+	// Get the middleware function
+	loggingMiddleware := LoggingMiddleware(logger, domain, identifier)
+
+	// Apply middleware to the handler
+	middlewareHandler := loggingMiddleware(handler)
 
 	req := httptest.NewRequest("GET", "http://example.com/test", nil)
 	w := httptest.NewRecorder()
 
 	middlewareHandler.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Errorf("Expected status code 200, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
 	}
 }
 
@@ -41,7 +45,11 @@ func TestTimeoutMiddleware(t *testing.T) {
 		w.Write([]byte("This should timeout"))
 	})
 
-	middlewareHandler := TimeoutMiddleware(timeout, handler)
+	// Get the middleware function
+	timeoutMiddleware := TimeoutMiddleware(timeout)
+
+	// Apply middleware to the handler
+	middlewareHandler := timeoutMiddleware(handler)
 
 	req := httptest.NewRequest("GET", "http://example.com/test", nil)
 	w := httptest.NewRecorder()

@@ -9,6 +9,8 @@ import (
 
 	"github.com/mirkobrombin/goup/internal/config"
 	"github.com/mirkobrombin/goup/internal/logger"
+	"github.com/mirkobrombin/goup/internal/plugin"
+	"github.com/mirkobrombin/goup/internal/server/middleware"
 	"github.com/mirkobrombin/goup/internal/tui"
 	log "github.com/sirupsen/logrus"
 )
@@ -60,6 +62,16 @@ func StartServers(configs []config.SiteConfig, enableTUI bool) {
 		}
 	}
 
+	// Initialize the middleware manager
+	mwManager := middleware.NewMiddlewareManager()
+
+	// Initialize the plugins
+	pluginManager := plugin.GetPluginManagerInstance()
+	if err := pluginManager.InitPlugins(mwManager); err != nil {
+		fmt.Printf("Errore nell'inizializzare i plugin: %v\n", err)
+		return
+	}
+
 	var wg sync.WaitGroup
 
 	for port, confs := range portConfigs {
@@ -69,11 +81,11 @@ func StartServers(configs []config.SiteConfig, enableTUI bool) {
 			if len(confs) == 1 {
 				// Single domain on this port, start dedicated server
 				conf := confs[0]
-				startSingleServer(conf)
+				startSingleServer(conf, mwManager)
 			} else {
 				// Multiple domains on this port, start server with
 				// virtual host support.
-				startVirtualHostServer(port, confs)
+				startVirtualHostServer(port, confs, mwManager)
 			}
 		}(port, confs)
 	}
@@ -87,7 +99,7 @@ func StartServers(configs []config.SiteConfig, enableTUI bool) {
 	}
 }
 
-func startSingleServer(conf config.SiteConfig) {
+func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareManager) {
 	identifier := conf.Domain
 	logger := loggers[identifier]
 
@@ -106,12 +118,15 @@ func startSingleServer(conf config.SiteConfig) {
 		return
 	}
 
+	// Apply the middlewares
+	handler = mwManager.Apply(handler)
+
 	server := createHTTPServer(conf, handler)
 
 	startServerInstance(server, conf, logger)
 }
 
-func startVirtualHostServer(port int, configs []config.SiteConfig) {
+func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *middleware.MiddlewareManager) {
 	identifier := fmt.Sprintf("port_%d", port)
 	logger := loggers[identifier]
 
@@ -132,6 +147,9 @@ func startVirtualHostServer(port int, configs []config.SiteConfig) {
 			logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
 			continue
 		}
+
+		// Apply the middlewares
+		handler = mwManager.Apply(handler)
 
 		domainHandlers[conf.Domain] = handler
 	}
