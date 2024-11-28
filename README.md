@@ -165,6 +165,77 @@ Enable the TUI with the `--tui` flag when starting the server:
 goup start --tui
 ```
 
+## Plugins
+
+GoUP! has a lightweight plugin system that allows you to extend its functionality. 
+The following plugins are included:
+
+- **Custom Header Plugin**: Adds custom headers to HTTP responses, configured per domain.
+- **PHP Plugin**: Handles `.php` requests using PHP-FPM.
+
+### Enabling Plugins
+
+To enable plugins, add their configuration in the `plugin_configs` section of 
+the site's JSON configuration file. Example:
+
+```json
+{
+  "domain": "example.com",
+  "port": 8080,
+  "root_directory": "/path/to/root",
+  "custom_headers": {
+    "X-Custom-Header": "Hello, World!"
+  },
+  "plugin_configs": {
+    "PHPPlugin": {
+      "enable": true,
+      "fpm_addr": "/run/php/php8.2-fpm.sock"
+    }
+  }
+}
+```
+
+### Developing Plugins
+
+You can create your own plugins by implementing the `Plugin` interface. Here’s a 
+basic structure:
+
+```go
+package myplugin
+
+import (
+	"net/http"
+	"github.com/mirkobrombin/goup/internal/server/middleware"
+	log "github.com/sirupsen/logrus"
+)
+
+type MyPlugin struct{}
+
+func (p *MyPlugin) Name() string {
+	return "MyPlugin"
+}
+
+func (p *MyPlugin) Init(mwManager *middleware.MiddlewareManager) error {
+	return nil
+}
+
+func (p *MyPlugin) InitForSite(mwManager *middleware.MiddlewareManager, logger *log.Logger, conf config.SiteConfig) error {
+	mwManager.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			logger.Info("MyPlugin is working!")
+			next.ServeHTTP(w, r)
+		})
+	})
+	return nil
+}
+```
+
+Then register your plugin in the `main.go` file:
+
+```go
+pluginManager.Register(&myplugin.MyPlugin{})
+```
+
 ## Contributing
 
 I really appreciate any contributions you would like to make, whether it's a 
