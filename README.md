@@ -172,6 +172,7 @@ The following plugins are included:
 
 - **Custom Header Plugin**: Adds custom headers to HTTP responses, configured per domain.
 - **PHP Plugin**: Handles `.php` requests using PHP-FPM.
+- **AuthPlugin**: Protects routes with basic authentication.
 
 ### Enabling Plugins
 
@@ -190,6 +191,14 @@ the site's JSON configuration file. Example:
     "PHPPlugin": {
       "enable": true,
       "fpm_addr": "/run/php/php8.2-fpm.sock"
+    },
+    "AuthPlugin": {
+      "protected_paths": ["/protected.html"],
+      "credentials": {
+        "admin": "password123",
+        "user": "userpass"
+      },
+      "session_expiration": 3600
     }
   }
 }
