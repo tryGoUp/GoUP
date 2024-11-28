@@ -20,19 +20,30 @@ func LoggingMiddleware(logger *log.Logger, domain string, identifier string) Mid
 
 			duration := time.Since(start)
 
-			entry := logger.WithFields(log.Fields{
-				"domain":      domain,
-				"identifier":  identifier,
-				"method":      r.Method,
-				"url":         r.URL.String(),
-				"remote_addr": r.RemoteAddr,
-				"status_code": rw.statusCode,
-				"duration":    duration.Seconds(),
-			})
-			entry.Info("Handled request")
+			// Extract the real IP address if behind proxies
+			remoteAddr := r.RemoteAddr
+			if ip := r.Header.Get("X-Real-IP"); ip != "" {
+				remoteAddr = ip
+			} else if ips := r.Header.Get("X-Forwarded-For"); ips != "" {
+				remoteAddr = ips
+			}
+
+			logger.WithFields(log.Fields{
+				"method":       r.Method,
+				"url":          r.URL.String(),
+				"remote_addr":  remoteAddr,
+				"status_code":  rw.statusCode,
+				"duration_sec": duration.Seconds(),
+			}).Info("Handled request")
 
 			if tui.IsEnabled() {
-				tui.UpdateLog(identifier, entry)
+				tui.UpdateLog(identifier, logger.WithFields(log.Fields{
+					"method":       r.Method,
+					"url":          r.URL.String(),
+					"remote_addr":  remoteAddr,
+					"status_code":  rw.statusCode,
+					"duration_sec": duration.Seconds(),
+				}))
 			}
 		})
 	}

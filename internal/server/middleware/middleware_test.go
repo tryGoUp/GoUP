@@ -13,8 +13,7 @@ func TestLoggingMiddleware(t *testing.T) {
 	logger := log.New()
 	logger.Out = httptest.NewRecorder() // Discard output for testing
 
-	domain := "example.com"
-	identifier := "test"
+	identifier := "test_identifier"
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -22,7 +21,7 @@ func TestLoggingMiddleware(t *testing.T) {
 	})
 
 	// Get the middleware function
-	loggingMiddleware := LoggingMiddleware(logger, domain, identifier)
+	loggingMiddleware := LoggingMiddleware(logger, "test_domain", identifier)
 
 	// Apply middleware to the handler
 	middlewareHandler := loggingMiddleware(handler)
@@ -60,7 +59,7 @@ func TestTimeoutMiddleware(t *testing.T) {
 		t.Errorf("Expected status code %d, got %d", http.StatusServiceUnavailable, w.Code)
 	}
 
-	expectedBody := "Request timed out"
+	expectedBody := "Request timed out\n"
 	if w.Body.String() != expectedBody {
 		t.Errorf("Expected body %q, got %q", expectedBody, w.Body.String())
 	}

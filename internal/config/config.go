@@ -6,10 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // customLogDir is used to override the default log directory, e.g. for testing.
 var customLogDir string
+
+// SiteConfigs is a global map of site configurations keyed by domain.
+var SiteConfigs = make(map[string]SiteConfig)
 
 // SSLConfig represents the SSL configuration for a site.
 type SSLConfig struct {
@@ -27,6 +31,8 @@ type SiteConfig struct {
 	ProxyPass      string            `json:"proxy_pass"`
 	SSL            SSLConfig         `json:"ssl"`
 	RequestTimeout int               `json:"request_timeout"` // in seconds
+
+	PluginConfigs map[string]interface{} `json:"plugin_configs"` // Plugin-specific configurations
 }
 
 // GetConfigDir returns the directory where configuration files are stored.
@@ -89,6 +95,9 @@ func LoadAllConfigs() ([]SiteConfig, error) {
 				continue
 			}
 			configs = append(configs, conf)
+
+			// Populate the global SiteConfigs map
+			SiteConfigs[conf.Domain] = conf
 		}
 	}
 	return configs, nil
@@ -101,6 +110,18 @@ func (conf *SiteConfig) Save(filePath string) error {
 		return err
 	}
 	return os.WriteFile(filePath, data, 0644)
+}
+
+// GetSiteConfigByHost returns the site configuration based on the host.
+func GetSiteConfigByHost(host string) (SiteConfig, error) {
+	if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
+		host = host[:colonIndex]
+	}
+
+	if conf, ok := SiteConfigs[host]; ok {
+		return conf, nil
+	}
+	return SiteConfig{}, fmt.Errorf("site configuration not found for host: %s", host)
 }
 
 // SetCustomLogDir allows setting a custom log directory for testing.

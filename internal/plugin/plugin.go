@@ -3,13 +3,16 @@ package plugin
 import (
 	"sync"
 
+	"github.com/mirkobrombin/goup/internal/config"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
+	log "github.com/sirupsen/logrus"
 )
 
 // Plugin defines the interface for GoUP plugins.
 type Plugin interface {
 	Name() string
 	Init(mwManager *middleware.MiddlewareManager) error
+	InitForSite(mwManager *middleware.MiddlewareManager, logger *log.Logger, conf config.SiteConfig) error
 }
 
 // PluginManager manages loading and initialization of plugins.
@@ -52,7 +55,25 @@ func (pm *PluginManager) InitPlugins(mwManager *middleware.MiddlewareManager) er
 	return nil
 }
 
-// GetRegisteredPlugins returns the registered plugins.
+// InitPluginsForSite initializes all registered plugins for a specific site.
+func (pm *PluginManager) InitPluginsForSite(mwManager *middleware.MiddlewareManager, baseLogger *log.Logger, conf config.SiteConfig) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	for _, plugin := range pm.plugins {
+		pluginLogger := baseLogger.WithFields(log.Fields{
+			"plugin": plugin.Name(),
+			"domain": conf.Domain,
+		})
+
+		if err := plugin.InitForSite(mwManager, pluginLogger.Logger, conf); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetRegisteredPlugins returns the names of all registered plugins.
 func (pm *PluginManager) GetRegisteredPlugins() []string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()

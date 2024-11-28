@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/plugin"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
 	log "github.com/sirupsen/logrus"
 )
 
 // createHandler creates the HTTP handler for a site configuration.
-func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string) (http.Handler, error) {
+func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string, globalMwManager *middleware.MiddlewareManager) (http.Handler, error) {
 	var handler http.Handler
 
 	if conf.ProxyPass != "" {
@@ -37,13 +38,23 @@ func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string
 		})
 	}
 
-	// Set up site-specific middleware.
-	mwManager := middleware.NewMiddlewareManager()
-	timeout := time.Duration(conf.RequestTimeout) * time.Second
-	mwManager.Use(middleware.TimeoutMiddleware(timeout))
-	mwManager.Use(middleware.LoggingMiddleware(logger, conf.Domain, identifier))
+	// Set up middleware manager copy for this site
+	siteMwManager := globalMwManager.Copy()
 
-	handler = mwManager.Apply(handler)
+	// Initialize plugins for this site
+	pluginManager := plugin.GetPluginManagerInstance()
+	if err := pluginManager.InitPluginsForSite(siteMwManager, logger, conf); err != nil {
+		return nil, fmt.Errorf("error initializing plugins for site %s: %v", conf.Domain, err)
+	}
+
+	// Add per-site middleware
+	timeout := time.Duration(conf.RequestTimeout) * time.Second
+	siteMwManager.Use(middleware.TimeoutMiddleware(timeout))
+
+	// Add logging middleware last to ensure it wraps the entire request
+	siteMwManager.Use(middleware.LoggingMiddleware(logger, conf.Domain, identifier))
+
+	handler = siteMwManager.Apply(handler)
 
 	return handler, nil
 }

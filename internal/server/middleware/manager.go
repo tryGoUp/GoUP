@@ -29,3 +29,12 @@ func (m *MiddlewareManager) Apply(handler http.Handler) http.Handler {
 	}
 	return handler
 }
+
+// Copy creates a new MiddlewareManager with the same middleware chain.
+func (m *MiddlewareManager) Copy() *MiddlewareManager {
+	copiedMiddleware := make([]MiddlewareFunc, len(m.middleware))
+	copy(copiedMiddleware, m.middleware)
+	return &MiddlewareManager{
+		middleware: copiedMiddleware,
+	}
+}

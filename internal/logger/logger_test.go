@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	log "github.com/sirupsen/logrus"
 )
 
 func TestNewLogger(t *testing.T) {
@@ -15,7 +16,10 @@ func TestNewLogger(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	config.SetCustomLogDir(tmpDir)
-	logger, err := NewLogger(identifier)
+	fields := log.Fields{
+		"test_field": "test_value",
+	}
+	logger, err := NewLogger(identifier, fields)
 	if err != nil {
 		t.Fatalf("Error creating new logger: %v", err)
 	}

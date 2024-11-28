@@ -19,7 +19,10 @@ func TestCreateHandler_Static(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	testFilePath := filepath.Join(tmpDir, "testfile.txt")
-	os.WriteFile(testFilePath, []byte("Test content"), 0644)
+	err = os.WriteFile(testFilePath, []byte("Test content"), 0644)
+	if err != nil {
+		t.Fatalf("Error creating test file: %v", err)
+	}
 
 	conf := config.SiteConfig{
 		Domain:        "example.com",
@@ -30,9 +33,10 @@ func TestCreateHandler_Static(t *testing.T) {
 		RequestTimeout: 60,
 	}
 	logger := log.New()
+	logger.Out = os.Stderr
 	identifier := "test"
 
-	handler, err := createHandler(conf, logger, identifier)
+	handler, err := createHandler(conf, logger, identifier, nil)
 	if err != nil {
 		t.Fatalf("Error creating handler: %v", err)
 	}
@@ -42,12 +46,12 @@ func TestCreateHandler_Static(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Errorf("Expected status code 200, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
 	}
 
 	if w.Header().Get("X-Test-Header") != "TestValue" {
-		t.Errorf("Expected custom header X-Test-Header to be 'TestValue', got %s", w.Header().Get("X-Test-Header"))
+		t.Errorf("Expected custom header 'X-Test-Header' to be 'TestValue', got %q", w.Header().Get("X-Test-Header"))
 	}
 
 	expectedBody := "Test content"
@@ -69,9 +73,10 @@ func TestCreateHandler_ProxyPass(t *testing.T) {
 		RequestTimeout: 60,
 	}
 	logger := log.New()
+	logger.Out = os.Stderr
 	identifier := "test"
 
-	handler, err := createHandler(conf, logger, identifier)
+	handler, err := createHandler(conf, logger, identifier, nil)
 	if err != nil {
 		t.Fatalf("Error creating handler: %v", err)
 	}
@@ -81,8 +86,8 @@ func TestCreateHandler_ProxyPass(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	if w.Code != 200 {
-		t.Errorf("Expected status code 200, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
 	}
 
 	expectedBody := "Backend Response"

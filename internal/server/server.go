@@ -49,7 +49,10 @@ func StartServers(configs []config.SiteConfig, enableTUI bool) {
 		}
 
 		// Set up logger
-		lg, err := logger.NewLogger(identifier)
+		fields := log.Fields{
+			"domain": identifier,
+		}
+		lg, err := logger.NewLogger(identifier, fields)
 		if err != nil {
 			fmt.Printf("Error setting up logger for %s: %v\n", identifier, err)
 			continue
@@ -62,13 +65,13 @@ func StartServers(configs []config.SiteConfig, enableTUI bool) {
 		}
 	}
 
-	// Initialize the middleware manager
+	// Initialize the global middleware manager
 	mwManager := middleware.NewMiddlewareManager()
 
-	// Initialize the plugins
+	// Initialize the plugins with the global middleware manager
 	pluginManager := plugin.GetPluginManagerInstance()
 	if err := pluginManager.InitPlugins(mwManager); err != nil {
-		fmt.Printf("Errore nell'inizializzare i plugin: %v\n", err)
+		fmt.Printf("Error initializing plugins: %v\n", err)
 		return
 	}
 
@@ -99,6 +102,7 @@ func StartServers(configs []config.SiteConfig, enableTUI bool) {
 	}
 }
 
+// startSingleServer starts a server for a single site configuration.
 func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareManager) {
 	identifier := conf.Domain
 	logger := loggers[identifier]
@@ -112,20 +116,17 @@ func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareM
 		}
 	}
 
-	handler, err := createHandler(conf, logger, identifier)
+	handler, err := createHandler(conf, logger, identifier, mwManager)
 	if err != nil {
 		logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
 		return
 	}
 
-	// Apply the middlewares
-	handler = mwManager.Apply(handler)
-
 	server := createHTTPServer(conf, handler)
-
 	startServerInstance(server, conf, logger)
 }
 
+// startVirtualHostServer starts a server that handles multiple domains on the same port.
 func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *middleware.MiddlewareManager) {
 	identifier := fmt.Sprintf("port_%d", port)
 	logger := loggers[identifier]
@@ -138,22 +139,19 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 		if conf.ProxyPass == "" {
 			if _, err := os.Stat(conf.RootDirectory); os.IsNotExist(err) {
 				logger.Errorf("Root directory does not exist for %s: %v", conf.Domain, err)
-				continue
 			}
 		}
 
-		handler, err := createHandler(conf, logger, identifier)
+		handler, err := createHandler(conf, logger, identifier, mwManager)
 		if err != nil {
 			logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
 			continue
 		}
 
-		// Apply the middlewares
-		handler = mwManager.Apply(handler)
-
 		domainHandlers[conf.Domain] = handler
 	}
 
+	// Main handler that routes requests based on the Host header
 	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 
@@ -172,6 +170,5 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 		Port: port,
 	}
 	server := createHTTPServer(serverConf, mainHandler)
-
 	startServerInstance(server, serverConf, logger)
 }
