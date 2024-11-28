@@ -5,19 +5,28 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	log "github.com/sirupsen/logrus"
+
+	"github.com/mirkobrombin/goup/internal/config"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
 	"github.com/mirkobrombin/goup/plugins"
 )
 
 func TestPluginManager(t *testing.T) {
 	pluginManager := GetPluginManagerInstance()
-
 	pluginManager.Register(&plugins.CustomHeaderPlugin{})
-
 	mwManager := middleware.NewMiddlewareManager()
-	err := pluginManager.InitPlugins(mwManager)
+
+	conf := config.SiteConfig{
+		CustomHeaders: map[string]string{
+			"X-GoUP-Header": "GoUP",
+		},
+	}
+
+	logger := log.New()
+	err := pluginManager.InitPluginsForSite(mwManager, logger, conf)
 	if err != nil {
-		t.Fatalf("Failed to initialize plugin: %v", err)
+		t.Fatalf("Failed to initialize plugin for site: %v", err)
 	}
 
 	handler := mwManager.Apply(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

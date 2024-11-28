@@ -59,7 +59,7 @@ func TestTimeoutMiddleware(t *testing.T) {
 		t.Errorf("Expected status code %d, got %d", http.StatusServiceUnavailable, w.Code)
 	}
 
-	expectedBody := "Request timed out\n"
+	expectedBody := "Request timed out"
 	if w.Body.String() != expectedBody {
 		t.Errorf("Expected body %q, got %q", expectedBody, w.Body.String())
 	}
