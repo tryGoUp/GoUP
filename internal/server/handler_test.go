@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/server/middleware"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -36,7 +37,7 @@ func TestCreateHandler_Static(t *testing.T) {
 	logger.Out = os.Stderr
 	identifier := "test"
 
-	handler, err := createHandler(conf, logger, identifier, nil)
+	handler, err := createHandler(conf, logger, identifier, &middleware.MiddlewareManager{})
 	if err != nil {
 		t.Fatalf("Error creating handler: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestCreateHandler_ProxyPass(t *testing.T) {
 	logger.Out = os.Stderr
 	identifier := "test"
 
-	handler, err := createHandler(conf, logger, identifier, nil)
+	handler, err := createHandler(conf, logger, identifier, &middleware.MiddlewareManager{})
 	if err != nil {
 		t.Fatalf("Error creating handler: %v", err)
 	}
