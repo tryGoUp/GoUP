@@ -12,6 +12,7 @@ func main() {
 	// Register your plugins here:
 	pluginManager.Register(&plugins.CustomHeaderPlugin{})
 	pluginManager.Register(&plugins.PHPPlugin{})
+	pluginManager.Register(&plugins.AuthPlugin{})
 
 	cli.Execute()
 }
