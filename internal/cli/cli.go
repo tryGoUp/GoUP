@@ -13,6 +13,7 @@ import (
 )
 
 var tuiMode bool
+var benchMode bool
 
 // rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
@@ -37,6 +38,7 @@ func init() {
 	rootCmd.AddCommand(pluginsCmd)
 
 	startCmd.Flags().BoolVarP(&tuiMode, "tui", "t", false, "Enable TUI mode")
+	startCmd.Flags().BoolVarP(&benchMode, "bench", "b", false, "Enable benchmark mode")
 }
 
 var generateCmd = &cobra.Command{
@@ -158,7 +160,7 @@ func start(cmd *cobra.Command, args []string) {
 	}
 
 	fmt.Println("Starting servers...")
-	server.StartServers(configs, tuiMode)
+	server.StartServers(configs, tuiMode, benchMode)
 
 	// Wait indefinitely if not in TUI mode, the servers will keep running
 	// and loggers will keep writing to both the stdout and the log files.

@@ -22,7 +22,7 @@ var (
 )
 
 // StartServers starts the servers based on the provided configurations.
-func StartServers(configs []config.SiteConfig, enableTUI bool) {
+func StartServers(configs []config.SiteConfig, enableTUI bool, enableBench bool) {
 	tuiMode = enableTUI
 
 	// FIXME: move all TUI related code out of this package, I do not feel
@@ -68,6 +68,11 @@ func StartServers(configs []config.SiteConfig, enableTUI bool) {
 
 	// Initialize the global middleware manager
 	mwManager := middleware.NewMiddlewareManager()
+
+	// Enable benchmark middleware if requested
+	if enableBench {
+		mwManager.Use(middleware.BenchmarkMiddleware())
+	}
 
 	// Initialize the plugins with the global middleware manager
 	pluginManager := plugin.GetPluginManagerInstance()
