@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/armon/go-radix"
 	"github.com/mirkobrombin/goup/internal/config"
 	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
@@ -131,7 +132,7 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 	identifier := fmt.Sprintf("port_%d", port)
 	logger := loggers[identifier]
 
-	domainHandlers := make(map[string]http.Handler)
+	radixTree := radix.New()
 
 	for _, conf := range configs {
 		// We do not want to start a server if the root directory does not exist
@@ -148,19 +149,18 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 			continue
 		}
 
-		domainHandlers[conf.Domain] = handler
+		radixTree.Insert(conf.Domain, handler)
 	}
 
 	// Main handler that routes requests based on the Host header
 	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
-
 		if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
 			host = host[:colonIndex]
 		}
 
-		if handler, ok := domainHandlers[host]; ok {
-			handler.ServeHTTP(w, r)
+		if handler, found := radixTree.Get(host); found {
+			handler.(http.Handler).ServeHTTP(w, r)
 		} else {
 			http.NotFound(w, r)
 		}

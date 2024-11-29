@@ -3,7 +3,7 @@ module github.com/mirkobrombin/goup
 go 1.22
 
 require (
-	github.com/mitchellh/mapstructure v1.5.0
+	github.com/armon/go-radix v1.0.0
 	github.com/quic-go/quic-go v0.48.1
 	github.com/rivo/tview v0.0.0-20241103174730-c76f7879f592
 	github.com/sirupsen/logrus v1.9.3
