@@ -56,7 +56,6 @@ func (p *NodeJSPlugin) nodeMiddleware(logger *log.Logger, conf config.SiteConfig
 			// Retrieve site-specific plugin configuration.
 			pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 			if !ok {
-				logger.Warnf("Plugin config not found for host: %s", r.Host)
 				next.ServeHTTP(w, r)
 				return
 			}

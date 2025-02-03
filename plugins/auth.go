@@ -53,7 +53,6 @@ func (p *AuthPlugin) Init(mwManager *middleware.MiddlewareManager) error {
 func (p *AuthPlugin) InitForSite(mwManager *middleware.MiddlewareManager, logger *log.Logger, conf config.SiteConfig) error {
 	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 	if !ok {
-		logger.Warnf("AuthPlugin config not found for host: %s", conf.Domain)
 		return nil
 	}
 
