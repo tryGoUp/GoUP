@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
 	log "github.com/sirupsen/logrus"
 )
@@ -19,6 +20,7 @@ import (
 type NodeJSPlugin struct {
 	mu      sync.Mutex
 	process *os.Process
+	logger  *log.Logger
 }
 
 // Name returns the name of the plugin.
@@ -32,8 +34,17 @@ func (p *NodeJSPlugin) Init(mwManager *middleware.MiddlewareManager) error {
 }
 
 // InitForSite initializes the plugin for a specific site.
-func (p *NodeJSPlugin) InitForSite(mwManager *middleware.MiddlewareManager, logger *log.Logger, conf config.SiteConfig) error {
-	mwManager.Use(p.nodeMiddleware(logger, conf))
+func (p *NodeJSPlugin) InitForSite(mwManager *middleware.MiddlewareManager, baseLogger *log.Logger, conf config.SiteConfig) error {
+	// Create a dedicated logger for this plugin/site.
+	pluginLogger, err := logger.NewPluginLogger(conf.Domain, p.Name())
+	if err != nil {
+		baseLogger.Errorf("Failed to create NodeJSPlugin logger: %v", err)
+		return err
+	}
+	p.logger = pluginLogger
+
+	// Add the Node.js middleware to intercept matching requests.
+	mwManager.Use(p.nodeMiddleware(pluginLogger, conf))
 	return nil
 }
 
@@ -49,18 +60,21 @@ type NodeJSPluginConfig struct {
 	ProxyPaths     []string `json:"proxy_paths"`
 }
 
-// nodeMiddleware intercepts requests and forwards API calls to Node.js.
-func (p *NodeJSPlugin) nodeMiddleware(logger *log.Logger, conf config.SiteConfig) middleware.MiddlewareFunc {
+// nodeMiddleware intercepts requests and forwards them to Node.js if they
+// match ProxyPaths.
+func (p *NodeJSPlugin) nodeMiddleware(baseLogger *log.Logger, conf config.SiteConfig) middleware.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Retrieve site-specific plugin configuration.
+
+			// Retrieve plugin config for the current site.
 			pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 			if !ok {
+				// If there's no configuration for this plugin, just move on.
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Parse configuration.
+			// Map the raw config to a strong type.
 			pluginConfig := NodeJSPluginConfig{}
 			if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
 				if enable, ok := rawMap["enable"].(bool); ok {
@@ -93,45 +107,45 @@ func (p *NodeJSPlugin) nodeMiddleware(logger *log.Logger, conf config.SiteConfig
 				}
 			}
 
+			// If disabled, do nothing.
 			if !pluginConfig.Enable {
-				logger.Infof("NodeJS Plugin is disabled for host: %s", r.Host)
+				baseLogger.Infof("NodeJS Plugin disabled for host: %s", r.Host)
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Start Node.js if it is not already running.
-			p.ensureNodeServerRunning(pluginConfig, logger)
+			// Ensure Node.js is running.
+			p.ensureNodeServerRunning(pluginConfig)
 
-			// Check if the request should be forwarded to Node.js.
+			// Check if the request path should be forwarded to Node.js.
 			for _, proxyPath := range pluginConfig.ProxyPaths {
 				if strings.HasPrefix(r.URL.Path, proxyPath) {
-					p.proxyToNode(w, r, pluginConfig, logger)
+					p.proxyToNode(w, r, pluginConfig)
 					return
 				}
 			}
 
-			// If the request does not match a Node.js route, let GoUp handle static files.
+			// If it doesn't match, serve static files as usual.
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
 // ensureNodeServerRunning starts Node.js if it is not already running.
-func (p *NodeJSPlugin) ensureNodeServerRunning(config NodeJSPluginConfig, logger *log.Logger) {
+func (p *NodeJSPlugin) ensureNodeServerRunning(config NodeJSPluginConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	// If the process is already running, do nothing.
 	if p.process != nil {
-		logger.Infof("Node.js server is already running (PID: %d)", p.process.Pid)
 		return
 	}
 
-	logger.Infof("Starting Node.js server...")
+	p.logger.Infof("Starting Node.js server...")
 
 	// Install dependencies if required.
 	if config.InstallDeps {
-		p.installDependencies(config, logger)
+		p.installDependencies(config)
 	}
 
 	// Start the Node.js server.
@@ -144,27 +158,38 @@ func (p *NodeJSPlugin) ensureNodeServerRunning(config NodeJSPluginConfig, logger
 
 	cmd := exec.Command(nodePath, entryPath)
 	cmd.Dir = config.RootDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// Redirect the Node.js output to the plugin logger instead of stdout.
+	cmd.Stdout = p.logger.Writer()
+	cmd.Stderr = p.logger.Writer()
 
 	if err := cmd.Start(); err != nil {
-		logger.Errorf("Failed to start Node.js server: %v", err)
+		p.logger.Errorf("Failed to start Node.js server: %v", err)
 		return
 	}
 
+	// Store the process to avoid multiple starts.
 	p.process = cmd.Process
-	logger.Infof("Started Node.js server (PID: %d) on port %s", p.process.Pid, config.Port)
+
+	p.logger.Infof("Started Node.js server (PID: %d) on port %s", p.process.Pid, config.Port)
+
+	// Optionally, handle process exit to close the writers.
+	go func() {
+		err := cmd.Wait()
+		p.logger.Infof("Node.js server exited (PID: %d), error=%v", p.process.Pid, err)
+		// Close the logger writers to free resources.
+		p.logger.Writer().Close()
+	}()
 }
 
-// proxyToNode forwards the original request to Node.js and returns the response.
-func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, config NodeJSPluginConfig, logger *log.Logger) {
-	// Construct the URL for forwarding the request to Node.js.
+// proxyToNode forwards the original HTTP request to Node.js and sends back
+// the response.
+func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, config NodeJSPluginConfig) {
 	nodeURL := fmt.Sprintf("http://localhost:%s%s", config.Port, r.URL.Path)
 
-	// Create a new HTTP request forwarding the original request data.
 	bodyReader, err := io.ReadAll(r.Body)
 	if err != nil {
-		logger.Errorf("Failed to read request body: %v", err)
+		p.logger.Errorf("Failed to read request body: %v", err)
 		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
 		return
 	}
@@ -172,7 +197,7 @@ func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, confi
 
 	req, err := http.NewRequest(r.Method, nodeURL, strings.NewReader(string(bodyReader)))
 	if err != nil {
-		logger.Errorf("Failed to create request for Node.js: %v", err)
+		p.logger.Errorf("Failed to create request for Node.js: %v", err)
 		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -187,13 +212,13 @@ func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, confi
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Errorf("Failed to connect to Node.js backend: %v", err)
+		p.logger.Errorf("Failed to connect to Node.js backend: %v", err)
 		http.Error(w, "Node.js backend unavailable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers.
+	// Forward response headers back to the client.
 	for key, values := range resp.Header {
 		for _, value := range values {
 			w.Header().Add(key, value)
@@ -204,7 +229,7 @@ func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, confi
 	w.WriteHeader(resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logger.Errorf("Failed to read response body from Node.js: %v", err)
+		p.logger.Errorf("Failed to read response body from Node.js: %v", err)
 		http.Error(w, "Failed to read response from Node.js", http.StatusInternalServerError)
 		return
 	}
@@ -212,53 +237,27 @@ func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, confi
 	w.Write(body)
 }
 
-// startNodeServer ensures the Node.js server is running.
-func (p *NodeJSPlugin) startNodeServer(config NodeJSPluginConfig, logger *log.Logger) {
-	logger.Infof("Starting Node.js server...")
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Install dependencies if needed.
-	if config.InstallDeps {
-		p.installDependencies(config, logger)
-	}
-
-	// Start the Node.js server.
-	entryPath := filepath.Join(config.RootDir, config.Entry)
-	cmd := exec.Command(config.NodePath, entryPath)
-	cmd.Dir = config.RootDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		logger.Errorf("Failed to start Node.js server: %v", err)
-		return
-	}
-
-	p.process = cmd.Process
-	logger.Infof("Started Node.js server (PID: %d) on port %s", p.process.Pid, config.Port)
-}
-
 // installDependencies installs dependencies using the configured package manager.
-func (p *NodeJSPlugin) installDependencies(config NodeJSPluginConfig, logger *log.Logger) {
+func (p *NodeJSPlugin) installDependencies(config NodeJSPluginConfig) {
 	nodeModulesPath := filepath.Join(config.RootDir, "node_modules")
 	if _, err := os.Stat(nodeModulesPath); os.IsNotExist(err) {
-		logger.Infof("node_modules not found, installing dependencies in %s", config.RootDir)
+		p.logger.Infof("node_modules not found, installing dependencies in %s", config.RootDir)
 
 		packageManager := config.PackageManager
 		if packageManager == "" {
 			packageManager = "npm"
 		}
 
-		logger.Infof("Using package manager: %s", packageManager)
+		p.logger.Infof("Using package manager: %s", packageManager)
 		cmd := exec.Command(packageManager, "install")
 		cmd.Dir = config.RootDir
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		cmd.Stdout = p.logger.Writer()
+		cmd.Stderr = p.logger.Writer()
+
 		if err := cmd.Run(); err != nil {
-			logger.Errorf("Failed to install dependencies using %s: %v", packageManager, err)
+			p.logger.Errorf("Failed to install dependencies using %s: %v", packageManager, err)
 		} else {
-			logger.Infof("Dependencies installed successfully using %s", packageManager)
+			p.logger.Infof("Dependencies installed successfully using %s", packageManager)
 		}
 	}
 }
