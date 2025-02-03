@@ -7,7 +7,8 @@ import (
 )
 
 func main() {
-	pluginManager := plugin.GetPluginManagerInstance()
+	pluginManager := plugin.NewPluginManager()
+	plugin.SetDefaultPluginManager(pluginManager)
 
 	// Register your plugins here:
 	pluginManager.Register(&plugins.CustomHeaderPlugin{})

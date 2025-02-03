@@ -21,18 +21,28 @@ type PluginManager struct {
 	mu      sync.Mutex
 }
 
-// Singleton PluginManagerInstance.
-var pluginManagerInstance *PluginManager
-var once sync.Once
+// DefaultPluginManager is the default instance used by the application.
+var DefaultPluginManager *PluginManager
 
-// GetPluginManagerInstance returns the singleton instance of PluginManager.
+// NewPluginManager creates a new PluginManager instance.
+func NewPluginManager() *PluginManager {
+	return &PluginManager{
+		plugins: []Plugin{},
+	}
+}
+
+// SetDefaultPluginManager sets the default PluginManager instance.
+func SetDefaultPluginManager(pm *PluginManager) {
+	DefaultPluginManager = pm
+}
+
+// GetPluginManagerInstance returns the default PluginManager instance.
+// If it is not set, a new one is created.
 func GetPluginManagerInstance() *PluginManager {
-	once.Do(func() {
-		pluginManagerInstance = &PluginManager{
-			plugins: []Plugin{},
-		}
-	})
-	return pluginManagerInstance
+	if DefaultPluginManager == nil {
+		DefaultPluginManager = NewPluginManager()
+	}
+	return DefaultPluginManager
 }
 
 // Register registers a new plugin.
