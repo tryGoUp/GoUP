@@ -16,6 +16,7 @@ GoUP! is a minimal, tweakable web server written in Go. You can use it to serve 
 ## Future Plans
 
 - API for dynamic configuration changes
+- Docker/Podman support for easy deployment
 
 ## Installation
 
@@ -172,7 +173,8 @@ The following plugins are included:
 
 - **Custom Header Plugin**: Adds custom headers to HTTP responses, configured per domain.
 - **PHP Plugin**: Handles `.php` requests using PHP-FPM.
-- **AuthPlugin**: Protects routes with basic authentication.
+- **Auth Plugin**: Protects routes with basic authentication.
+- **NodeJS Plugin**: Handles Node.js applications using `node`.
 
 ### Enabling Plugins
 
@@ -199,10 +201,102 @@ the site's JSON configuration file. Example:
         "user": "userpass"
       },
       "session_expiration": 3600
+    },
+    "NodeJSPlugin": {
+      "enable": true,
+      "port": "3000",
+      "root_dir": "/path/to/node/app",
+      "entry": "server.js",
+      "install_deps": true,
+      "node_path": "/usr/bin/node",
+      "package_manager": "pnpm",
+      "proxy_paths": ["/api/", "/backend/"]
     }
   }
 }
 ```
+
+### Pre-Installed Plugins
+
+#### Custom Header Plugin
+
+Adds custom headers to HTTP responses. The configuration is a simple key-value pair:
+
+```json
+{
+  "X-Custom-Header": "Hello, World!"
+}
+```
+
+at the site level, not in the `plugin_configs` section.
+
+#### PHP Plugin
+
+Handles `.php` requests using PHP-FPM. The configuration includes the path to the
+PHP-FPM socket:
+
+```json
+{
+  "enable": true,
+  "fpm_addr": "/run/php/php8.2-fpm.sock"
+}
+```
+
+can be both a socket path or an IP address with a port.
+
+#### Auth Plugin
+
+Protects routes with basic authentication. The configuration includes the protected
+paths, credentials, and session expiration time in seconds:
+
+```json
+{
+  "protected_paths": ["/protected.html"],
+  "credentials": {
+    "admin": "password123",
+    "user": "userpass"
+  },
+  "session_expiration": 3600
+}
+```
+
+session expiration is defined in seconds.
+
+#### NodeJS Plugin
+
+Handles Node.js applications using `node`. The configuration includes the port, root
+directory, entry file, and other settings:
+
+```json
+{
+  "enable": true,
+  "port": "3000",
+  "root_dir": "/path/to/node/app",
+  "entry": "server.js",
+  "install_deps": true,
+  "node_path": "/usr/bin/node",
+  "package_manager": "pnpm",
+  "proxy_paths": ["/api/", "/backend/"]
+}
+```
+
+- **port**: The port number to run the Node.js application on, be careful not
+  to use the same port as the GoUP! server and other Node.js applications, GoUp
+  will handle the routing but not the collision of ports.
+- **root_dir**: The path to the Node.js application directory.
+- **entry**: The entry file for the Node.js application (e.g., `server.js`).
+- **install_deps**: Set to `true` to install dependencies using the package
+  manager specified, this will automatically create a `node_modules` directory
+  following the `package.json` instructions.
+- **node_path**: The path to the `node` executable, leave empty to use the
+  system default.
+- **package_manager**: The package manager to use for installing dependencies,
+  can be `npm`, `yarn`, `pnpm`, or any other package manager that follows
+  the same syntax as `npm`. Leaving it blank will default to `npm`.
+- **proxy_paths**: The list of paths to be served by the Node.js application,
+  all other paths will be served by GoUP! as static files or reverse proxies.
+  Note that the paths automatically include all the child paths, so `/api/`
+  will match `/api/v1/` and `/api/v1/users/` as well.
 
 ### Developing Plugins
 
