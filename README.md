@@ -1,4 +1,9 @@
-# GoUP! - A Minimal Configurable Web Server in Go
+<div align="center">
+    <img src="https://raw.githubusercontent.com/tryGoUp/brand/refs/heads/main/Logo-Text/Light/logo-text-light.png#gh-light-mode-only" height="100">
+    <img src="https://raw.githubusercontent.com/tryGoUp/brand/refs/heads/main/Logo-Text/Dark/logo-text-dark.png#gh-dark-mode-only" height="100">
+    <hr />
+    <p>A Minimal Configurable Web Server in Go</p>
+</div>
 
 GoUP! is a minimal, tweakable web server written in Go. You can use it to serve static files, set up reverse proxies, and configure SSL for multiple domains, all through simple JSON configuration files. GoUp spawns a dedicated server for each port, websites with the same port are treated as virtual hosts and run on the same server.
 
