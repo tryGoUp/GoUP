@@ -38,22 +38,27 @@ func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string
 		})
 	}
 
-	// Set up middleware manager copy for this site
+	// Copy the global middleware manager for this site
 	siteMwManager := globalMwManager.Copy()
 
 	// Initialize plugins for this site
 	pluginManager := plugin.GetPluginManagerInstance()
-	if err := pluginManager.InitPluginsForSite(siteMwManager, logger, conf); err != nil {
+	if err := pluginManager.InitPluginsForSite(conf, logger); err != nil {
 		return nil, fmt.Errorf("error initializing plugins for site %s: %v", conf.Domain, err)
 	}
 
 	// Add per-site middleware
+	reqTimeout := conf.RequestTimeout
+	if reqTimeout == 0 {
+		reqTimeout = 60 // Default to 60 seconds
+	}
 	timeout := time.Duration(conf.RequestTimeout) * time.Second
 	siteMwManager.Use(middleware.TimeoutMiddleware(timeout))
 
 	// Add logging middleware last to ensure it wraps the entire request
 	siteMwManager.Use(middleware.LoggingMiddleware(logger, conf.Domain, identifier))
 
+	// Apply the final chain of middleware
 	handler = siteMwManager.Apply(handler)
 
 	return handler, nil

@@ -9,16 +9,17 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
-	"github.com/mirkobrombin/goup/internal/server/middleware"
 	log "github.com/sirupsen/logrus"
 )
 
 // AuthPlugin provides HTTP Basic Authentication for protected paths.
-type AuthPlugin struct{}
-
-// Name returns the name of the plugin.
-func (p *AuthPlugin) Name() string {
-	return "AuthPlugin"
+type AuthPlugin struct {
+	// Keeps the parsed config for the plugin.
+	conf AuthPluginConfig
+	// State holds the active sessions.
+	state *AuthPluginState
+	// Logger instance for this plugin.
+	logger *log.Logger
 }
 
 // AuthPluginConfig represents the configuration for the AuthPlugin.
@@ -38,21 +39,34 @@ type session struct {
 	Expiry   time.Time
 }
 
-// AuthPluginState internal state.
+// AuthPluginState internal state for the plugin.
 type AuthPluginState struct {
 	sessions map[string]session
 	mu       sync.RWMutex
 }
 
-// Init registers the authentication middleware globally.
-func (p *AuthPlugin) Init(mwManager *middleware.MiddlewareManager) error {
+// Name returns the name of the plugin.
+func (p *AuthPlugin) Name() string {
+	return "AuthPlugin"
+}
+
+// OnInit is called once during the global plugin initialization.
+func (p *AuthPlugin) OnInit() error {
+	// No global setup needed here for now.
 	return nil
 }
 
-// InitForSite initializes the plugin for a specific site.
-func (p *AuthPlugin) InitForSite(mwManager *middleware.MiddlewareManager, logger *log.Logger, conf config.SiteConfig) error {
+// OnInitForSite is called for each site configuration.
+func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) error {
+	p.logger = logger
+	p.state = &AuthPluginState{
+		sessions: make(map[string]session),
+	}
+
+	// Try to parse this plugin's config if present.
 	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 	if !ok {
+		// If there's no AuthPlugin config, just do nothing.
 		return nil
 	}
 
@@ -92,78 +106,89 @@ func (p *AuthPlugin) InitForSite(mwManager *middleware.MiddlewareManager, logger
 		return errors.New("session_expiration cannot be less than -1")
 	}
 
-	logger.Infof("Initializing AuthPlugin for domain: %s with session_expiration: %d", conf.Domain, authConfig.SessionExpiration)
+	p.conf = authConfig
 
-	// Initialization of the plugin state
-	state := &AuthPluginState{
-		sessions: make(map[string]session),
+	// Initialization of the plugin state with optional session cleanup.
+	if p.conf.SessionExpiration != -1 {
+		go p.state.cleanupExpiredSessions(time.Minute, logger)
 	}
 
-	// Cleanup expired sessions
-	if authConfig.SessionExpiration != -1 {
-		go state.cleanupExpiredSessions(time.Minute, logger)
-	}
-
-	mwManager.Use(p.authMiddleware(logger, authConfig, state))
+	logger.Infof("Initializing AuthPlugin for domain: %s with session_expiration: %d",
+		conf.Domain, authConfig.SessionExpiration)
 
 	return nil
 }
 
-// authMiddleware returns the middleware function for authentication.
-func (p *AuthPlugin) authMiddleware(logger *log.Logger, config AuthPluginConfig, state *AuthPluginState) middleware.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// BeforeRequest is invoked before serving each request.
+func (p *AuthPlugin) BeforeRequest(r *http.Request) {
+	// No specific pre-processing is needed here; logic is in HandleRequest.
+}
 
-			// Check if the path is protected
-			protected := false
-			for _, path := range config.ProtectedPaths {
-				if strings.HasPrefix(r.URL.Path, path) {
-					protected = true
-					break
-				}
-			}
-			if !protected {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			ip := getClientIP(r)
-
-			// Check if session exists and is valid
-			if sess, exists := state.getSession(ip); exists {
-				logger.Infof("Session valid for IP: %s, user: %s", ip, sess.Username)
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Check for Authorization header
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				unauthorized(w)
-				return
-			}
-
-			// Parse Basic Auth
-			username, password, ok := parseBasicAuth(authHeader)
-			if !ok {
-				unauthorized(w)
-				return
-			}
-
-			// Validate credentials
-			expectedPassword, userExists := config.Credentials[username]
-			if !userExists || expectedPassword != password {
-				unauthorized(w)
-				return
-			}
-
-			// Create session
-			state.createSession(ip, username, config.SessionExpiration, logger)
-
-			logger.Infof("Authenticated IP: %s, user: %s", ip, username)
-			next.ServeHTTP(w, r)
-		})
+// HandleRequest can fully handle the request, returning true if it does so.
+func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
+	// If there's no plugin config, do nothing.
+	if p.conf.Credentials == nil {
+		return false
 	}
+
+	// Check if the path is protected.
+	protected := false
+	for _, path := range p.conf.ProtectedPaths {
+		if strings.HasPrefix(r.URL.Path, path) {
+			protected = true
+			break
+		}
+	}
+	if !protected {
+		// Not protected, continue with normal flow.
+		return false
+	}
+
+	// The path is protected, check session or credentials.
+	ip := getClientIP(r)
+	if sess, exists := p.state.getSession(ip); exists {
+		p.logger.Infof("Session valid for IP: %s, user: %s", ip, sess.Username)
+		return false // Let the next handler continue.
+	}
+
+	// No valid session, check for Authorization header.
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		unauthorized(w)
+		return true
+	}
+
+	// Parse Basic Auth
+	username, password, ok := parseBasicAuth(authHeader)
+	if !ok {
+		unauthorized(w)
+		return true
+	}
+
+	// Validate credentials
+	expectedPassword, userExists := p.conf.Credentials[username]
+	if !userExists || expectedPassword != password {
+		unauthorized(w)
+		return true
+	}
+
+	// Create a new session
+	p.state.createSession(ip, username, p.conf.SessionExpiration, p.logger)
+	p.logger.Infof("Authenticated IP: %s, user: %s", ip, username)
+
+	// Return false to continue normal flow.
+	return false
+}
+
+// AfterRequest is invoked after the request has been served or handled.
+func (p *AuthPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {
+	// Nothing to do here in this plugin.
+}
+
+// OnExit is called when the server is shutting down.
+func (p *AuthPlugin) OnExit() error {
+	// No cleanup needed, but you could stop session cleanup goroutines if needed.
+	return nil
 }
 
 // getClientIP extracts the client's IP address from the request.

@@ -74,9 +74,9 @@ func StartServers(configs []config.SiteConfig, enableTUI bool, enableBench bool)
 		mwManager.Use(middleware.BenchmarkMiddleware())
 	}
 
-	// Initialize the plugins with the global middleware manager
+	// Initialize the plugins globally
 	pluginManager := plugin.GetPluginManagerInstance()
-	if err := pluginManager.InitPlugins(mwManager); err != nil {
+	if err := pluginManager.InitPlugins(); err != nil {
 		fmt.Printf("Error initializing plugins: %v\n", err)
 		return
 	}
@@ -88,13 +88,10 @@ func StartServers(configs []config.SiteConfig, enableTUI bool, enableBench bool)
 		go func(port int, confs []config.SiteConfig) {
 			defer wg.Done()
 			if len(confs) == 1 {
-				// Single domain on this port, start dedicated server
 				conf := confs[0]
-				startSingleServer(conf, mwManager)
+				startSingleServer(conf, mwManager, pluginManager)
 			} else {
-				// Multiple domains on this port, start server with
-				// virtual host support.
-				startVirtualHostServer(port, confs, mwManager)
+				startVirtualHostServer(port, confs, mwManager, pluginManager)
 			}
 		}(port, confs)
 	}
@@ -109,7 +106,7 @@ func StartServers(configs []config.SiteConfig, enableTUI bool, enableBench bool)
 }
 
 // startSingleServer starts a server for a single site configuration.
-func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareManager) {
+func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareManager, pm *plugin.PluginManager) {
 	identifier := conf.Domain
 	logger := loggers[identifier]
 
@@ -122,7 +119,17 @@ func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareM
 		}
 	}
 
-	handler, err := createHandler(conf, logger, identifier, mwManager)
+	// Initialize plugins for this site
+	if err := pm.InitPluginsForSite(conf, logger); err != nil {
+		logger.Errorf("Error initializing plugins for site %s: %v", conf.Domain, err)
+		return
+	}
+
+	// Add plugin middleware
+	mwManagerCopy := mwManager.Copy()
+	mwManagerCopy.Use(plugin.PluginMiddleware(pm))
+
+	handler, err := createHandler(conf, logger, identifier, mwManagerCopy)
 	if err != nil {
 		logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
 		return
@@ -133,22 +140,28 @@ func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareM
 }
 
 // startVirtualHostServer starts a server that handles multiple domains on the same port.
-func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *middleware.MiddlewareManager) {
+func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *middleware.MiddlewareManager, pm *plugin.PluginManager) {
 	identifier := fmt.Sprintf("port_%d", port)
 	logger := loggers[identifier]
 
 	radixTree := radix.New()
 
 	for _, conf := range configs {
-		// We do not want to start a server if the root directory does not exist
-		// let's fail fast instead.
 		if conf.ProxyPass == "" {
 			if _, err := os.Stat(conf.RootDirectory); os.IsNotExist(err) {
 				logger.Errorf("Root directory does not exist for %s: %v", conf.Domain, err)
 			}
 		}
 
-		handler, err := createHandler(conf, logger, identifier, mwManager)
+		if err := pm.InitPluginsForSite(conf, logger); err != nil {
+			logger.Errorf("Error initializing plugins for site %s: %v", conf.Domain, err)
+			continue
+		}
+
+		mwManagerCopy := mwManager.Copy()
+		mwManagerCopy.Use(plugin.PluginMiddleware(pm))
+
+		handler, err := createHandler(conf, logger, identifier, mwManagerCopy)
 		if err != nil {
 			logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
 			continue
@@ -157,7 +170,9 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 		radixTree.Insert(conf.Domain, handler)
 	}
 
-	// Main handler that routes requests based on the Host header
+	serverConf := config.SiteConfig{
+		Port: port,
+	}
 	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
@@ -171,9 +186,6 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 		}
 	})
 
-	serverConf := config.SiteConfig{
-		Port: port,
-	}
 	server := createHTTPServer(serverConf, mainHandler)
 	startServerInstance(server, serverConf, logger)
 }

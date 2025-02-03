@@ -12,40 +12,22 @@ import (
 
 	"github.com/mirkobrombin/goup/internal/config"
 	"github.com/mirkobrombin/goup/internal/logger"
-	"github.com/mirkobrombin/goup/internal/server/middleware"
 	log "github.com/sirupsen/logrus"
 )
 
 // NodeJSPlugin handles the execution of a Node.js application.
 type NodeJSPlugin struct {
-	mu      sync.Mutex
+	mu     sync.Mutex
+	logger *log.Logger
+	// A reference to the currently running Node.js process (if any).
 	process *os.Process
-	logger  *log.Logger
+	// siteConfigs holds domain-specific NodeJSPluginConfig.
+	siteConfigs map[string]NodeJSPluginConfig
 }
 
 // Name returns the name of the plugin.
 func (p *NodeJSPlugin) Name() string {
 	return "NodeJSPlugin"
-}
-
-// Init registers any global middleware (none for NodeJSPlugin).
-func (p *NodeJSPlugin) Init(mwManager *middleware.MiddlewareManager) error {
-	return nil
-}
-
-// InitForSite initializes the plugin for a specific site.
-func (p *NodeJSPlugin) InitForSite(mwManager *middleware.MiddlewareManager, baseLogger *log.Logger, conf config.SiteConfig) error {
-	// Create a dedicated logger for this plugin/site.
-	pluginLogger, err := logger.NewPluginLogger(conf.Domain, p.Name())
-	if err != nil {
-		baseLogger.Errorf("Failed to create NodeJSPlugin logger: %v", err)
-		return err
-	}
-	p.logger = pluginLogger
-
-	// Add the Node.js middleware to intercept matching requests.
-	mwManager.Use(p.nodeMiddleware(pluginLogger, conf))
-	return nil
 }
 
 // NodeJSPluginConfig represents the configuration for the NodeJSPlugin.
@@ -60,75 +42,112 @@ type NodeJSPluginConfig struct {
 	ProxyPaths     []string `json:"proxy_paths"`
 }
 
-// nodeMiddleware intercepts requests and forwards them to Node.js if they
-// match ProxyPaths.
-func (p *NodeJSPlugin) nodeMiddleware(baseLogger *log.Logger, conf config.SiteConfig) middleware.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// OnInit registers any global plugin logic (none in this case).
+func (p *NodeJSPlugin) OnInit() error {
+	p.siteConfigs = make(map[string]NodeJSPluginConfig)
+	return nil
+}
 
-			// Retrieve plugin config for the current site.
-			pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
-			if !ok {
-				// If there's no configuration for this plugin, just move on.
-				next.ServeHTTP(w, r)
-				return
+// OnInitForSite initializes the plugin for a specific site.
+func (p *NodeJSPlugin) OnInitForSite(conf config.SiteConfig, baseLogger *log.Logger) error {
+	if p.logger == nil {
+		// Create a dedicated logger for NodeJSPlugin overall.
+		pluginLogger, err := logger.NewPluginLogger(conf.Domain, p.Name())
+		if err != nil {
+			baseLogger.Errorf("Failed to create NodeJSPlugin logger: %v", err)
+			return err
+		}
+		p.logger = pluginLogger
+	}
+
+	// Parse NodeJSPluginConfig from the site config.
+	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
+	if ok {
+		cfg := NodeJSPluginConfig{}
+		if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
+			if enable, ok := rawMap["enable"].(bool); ok {
+				cfg.Enable = enable
 			}
-
-			// Map the raw config to a strong type.
-			pluginConfig := NodeJSPluginConfig{}
-			if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
-				if enable, ok := rawMap["enable"].(bool); ok {
-					pluginConfig.Enable = enable
-				}
-				if port, ok := rawMap["port"].(string); ok {
-					pluginConfig.Port = port
-				}
-				if rootDir, ok := rawMap["root_dir"].(string); ok {
-					pluginConfig.RootDir = rootDir
-				}
-				if entry, ok := rawMap["entry"].(string); ok {
-					pluginConfig.Entry = entry
-				}
-				if installDeps, ok := rawMap["install_deps"].(bool); ok {
-					pluginConfig.InstallDeps = installDeps
-				}
-				if nodePath, ok := rawMap["node_path"].(string); ok {
-					pluginConfig.NodePath = nodePath
-				}
-				if packageManager, ok := rawMap["package_manager"].(string); ok {
-					pluginConfig.PackageManager = packageManager
-				}
-				if proxyPaths, ok := rawMap["proxy_paths"].([]interface{}); ok {
-					for _, path := range proxyPaths {
-						if pathStr, ok := path.(string); ok {
-							pluginConfig.ProxyPaths = append(pluginConfig.ProxyPaths, pathStr)
-						}
+			if port, ok := rawMap["port"].(string); ok {
+				cfg.Port = port
+			}
+			if rootDir, ok := rawMap["root_dir"].(string); ok {
+				cfg.RootDir = rootDir
+			}
+			if entry, ok := rawMap["entry"].(string); ok {
+				cfg.Entry = entry
+			}
+			if installDeps, ok := rawMap["install_deps"].(bool); ok {
+				cfg.InstallDeps = installDeps
+			}
+			if nodePath, ok := rawMap["node_path"].(string); ok {
+				cfg.NodePath = nodePath
+			}
+			if packageManager, ok := rawMap["package_manager"].(string); ok {
+				cfg.PackageManager = packageManager
+			}
+			if proxyPaths, ok := rawMap["proxy_paths"].([]interface{}); ok {
+				for _, pathVal := range proxyPaths {
+					if pathStr, ok := pathVal.(string); ok {
+						cfg.ProxyPaths = append(cfg.ProxyPaths, pathStr)
 					}
 				}
 			}
-
-			// If disabled, do nothing.
-			if !pluginConfig.Enable {
-				baseLogger.Infof("NodeJS Plugin disabled for host: %s", r.Host)
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Ensure Node.js is running.
-			p.ensureNodeServerRunning(pluginConfig)
-
-			// Check if the request path should be forwarded to Node.js.
-			for _, proxyPath := range pluginConfig.ProxyPaths {
-				if strings.HasPrefix(r.URL.Path, proxyPath) {
-					p.proxyToNode(w, r, pluginConfig)
-					return
-				}
-			}
-
-			// If it doesn't match, serve static files as usual.
-			next.ServeHTTP(w, r)
-		})
+		}
+		p.siteConfigs[conf.Domain] = cfg
+	} else {
+		// If there's no config for this domain, store a default disabled config.
+		p.siteConfigs[conf.Domain] = NodeJSPluginConfig{}
 	}
+
+	return nil
+}
+
+// BeforeRequest is invoked before serving each request (unused here).
+func (p *NodeJSPlugin) BeforeRequest(r *http.Request) {}
+
+// HandleRequest can fully handle the request, returning true if it does so.
+func (p *NodeJSPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
+	// Identify the domain and strip any port.
+	host := r.Host
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+
+	cfg, ok := p.siteConfigs[host]
+	if !ok || !cfg.Enable {
+		return false
+	}
+
+	// Ensure Node.js is running if needed.
+	p.ensureNodeServerRunning(cfg)
+
+	// Check if path matches one of the ProxyPaths.
+	for _, proxyPath := range cfg.ProxyPaths {
+		if strings.HasPrefix(r.URL.Path, proxyPath) {
+			p.proxyToNode(w, r, cfg)
+			return true
+		}
+	}
+
+	// Not handled, continue with other handlers.
+	return false
+}
+
+// AfterRequest is invoked after the request has been served or handled.
+func (p *NodeJSPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
+
+// OnExit is called when the server is shutting down.
+func (p *NodeJSPlugin) OnExit() error {
+	// Optionally, terminate Node.js if running.
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.process != nil {
+		p.logger.Infof("Terminating Node.js process (PID: %d).", p.process.Pid)
+		_ = p.process.Kill()
+		p.process = nil
+	}
+	return nil
 }
 
 // ensureNodeServerRunning starts Node.js if it is not already running.
@@ -136,8 +155,8 @@ func (p *NodeJSPlugin) ensureNodeServerRunning(config NodeJSPluginConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// If the process is already running, do nothing.
 	if p.process != nil {
+		// Already running, do nothing.
 		return
 	}
 
@@ -150,7 +169,6 @@ func (p *NodeJSPlugin) ensureNodeServerRunning(config NodeJSPluginConfig) {
 
 	// Start the Node.js server.
 	entryPath := filepath.Join(config.RootDir, config.Entry)
-
 	nodePath := config.NodePath
 	if nodePath == "" {
 		nodePath = "node"
@@ -158,8 +176,6 @@ func (p *NodeJSPlugin) ensureNodeServerRunning(config NodeJSPluginConfig) {
 
 	cmd := exec.Command(nodePath, entryPath)
 	cmd.Dir = config.RootDir
-
-	// Redirect the Node.js output to the plugin logger instead of stdout.
 	cmd.Stdout = p.logger.Writer()
 	cmd.Stderr = p.logger.Writer()
 
@@ -168,25 +184,20 @@ func (p *NodeJSPlugin) ensureNodeServerRunning(config NodeJSPluginConfig) {
 		return
 	}
 
-	// Store the process to avoid multiple starts.
 	p.process = cmd.Process
-
 	p.logger.Infof("Started Node.js server (PID: %d) on port %s", p.process.Pid, config.Port)
 
-	// Optionally, handle process exit to close the writers.
+	// Watch for process exit.
 	go func() {
 		err := cmd.Wait()
 		p.logger.Infof("Node.js server exited (PID: %d), error=%v", p.process.Pid, err)
-		// Close the logger writers to free resources.
 		p.logger.Writer().Close()
 	}()
 }
 
-// proxyToNode forwards the original HTTP request to Node.js and sends back
-// the response.
+// proxyToNode forwards the request to Node.js and sends back the response.
 func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, config NodeJSPluginConfig) {
 	nodeURL := fmt.Sprintf("http://localhost:%s%s", config.Port, r.URL.Path)
-
 	bodyReader, err := io.ReadAll(r.Body)
 	if err != nil {
 		p.logger.Errorf("Failed to read request body: %v", err)
@@ -202,7 +213,7 @@ func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, confi
 		return
 	}
 
-	// Copy headers from the original request.
+	// Copy headers
 	for key, values := range r.Header {
 		for _, value := range values {
 			req.Header.Add(key, value)
@@ -218,22 +229,20 @@ func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, confi
 	}
 	defer resp.Body.Close()
 
-	// Forward response headers back to the client.
+	// Forward response headers.
 	for key, values := range resp.Header {
 		for _, value := range values {
 			w.Header().Add(key, value)
 		}
 	}
 
-	// Write the status code and response body.
 	w.WriteHeader(resp.StatusCode)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		p.logger.Errorf("Failed to read response body from Node.js: %v", err)
+		p.logger.Errorf("Failed to read response from Node.js: %v", err)
 		http.Error(w, "Failed to read response from Node.js", http.StatusInternalServerError)
 		return
 	}
-
 	w.Write(body)
 }
 
@@ -242,13 +251,10 @@ func (p *NodeJSPlugin) installDependencies(config NodeJSPluginConfig) {
 	nodeModulesPath := filepath.Join(config.RootDir, "node_modules")
 	if _, err := os.Stat(nodeModulesPath); os.IsNotExist(err) {
 		p.logger.Infof("node_modules not found, installing dependencies in %s", config.RootDir)
-
 		packageManager := config.PackageManager
 		if packageManager == "" {
 			packageManager = "npm"
 		}
-
-		p.logger.Infof("Using package manager: %s", packageManager)
 		cmd := exec.Command(packageManager, "install")
 		cmd.Dir = config.RootDir
 		cmd.Stdout = p.logger.Writer()

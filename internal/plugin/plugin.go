@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"net/http"
 	"sync"
 
 	"github.com/mirkobrombin/goup/internal/config"
@@ -10,15 +11,26 @@ import (
 
 // Plugin defines the interface for GoUP plugins.
 type Plugin interface {
+	// Name returns the plugin's name.
 	Name() string
-	Init(mwManager *middleware.MiddlewareManager) error
-	InitForSite(mwManager *middleware.MiddlewareManager, logger *log.Logger, conf config.SiteConfig) error
+	// OnInit is called once during the global plugin initialization.
+	OnInit() error
+	// OnInitForSite is called for each site configuration.
+	OnInitForSite(conf config.SiteConfig, logger *log.Logger) error
+	// BeforeRequest is invoked before serving each request.
+	BeforeRequest(r *http.Request)
+	// HandleRequest can fully handle the request, returning true if it does so.
+	HandleRequest(w http.ResponseWriter, r *http.Request) bool
+	// AfterRequest is invoked after the request has been served or handled.
+	AfterRequest(w http.ResponseWriter, r *http.Request)
+	// OnExit is called when the server is shutting down.
+	OnExit() error
 }
 
 // PluginManager manages loading and initialization of plugins.
 type PluginManager struct {
-	plugins []Plugin
 	mu      sync.Mutex
+	plugins []Plugin
 }
 
 // DefaultPluginManager is the default instance used by the application.
@@ -46,37 +58,32 @@ func GetPluginManagerInstance() *PluginManager {
 }
 
 // Register registers a new plugin.
-func (pm *PluginManager) Register(plugin Plugin) {
+func (pm *PluginManager) Register(p Plugin) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	pm.plugins = append(pm.plugins, plugin)
+	pm.plugins = append(pm.plugins, p)
 }
 
-// InitPlugins initializes all registered plugins.
-func (pm *PluginManager) InitPlugins(mwManager *middleware.MiddlewareManager) error {
+// InitPlugins calls OnInit on all registered plugins.
+func (pm *PluginManager) InitPlugins() error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	for _, plugin := range pm.plugins {
-		if err := plugin.Init(mwManager); err != nil {
+		if err := plugin.OnInit(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// InitPluginsForSite initializes all registered plugins for a specific site.
-func (pm *PluginManager) InitPluginsForSite(mwManager *middleware.MiddlewareManager, baseLogger *log.Logger, conf config.SiteConfig) error {
+// InitPluginsForSite calls OnInitForSite on all plugins.
+func (pm *PluginManager) InitPluginsForSite(conf config.SiteConfig, logger *log.Logger) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	for _, plugin := range pm.plugins {
-		pluginLogger := baseLogger.WithFields(log.Fields{
-			"plugin": plugin.Name(),
-			"domain": conf.Domain,
-		})
-
-		if err := plugin.InitForSite(mwManager, pluginLogger.Logger, conf); err != nil {
+		if err := plugin.OnInitForSite(conf, logger); err != nil {
 			return err
 		}
 	}
@@ -93,4 +100,40 @@ func (pm *PluginManager) GetRegisteredPlugins() []string {
 		names[i] = plugin.Name()
 	}
 	return names
+}
+
+// PluginMiddleware applies the plugin hooks around each HTTP request.
+func PluginMiddleware(pm *PluginManager) middleware.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			pm.mu.Lock()
+			registered := make([]Plugin, len(pm.plugins))
+			copy(registered, pm.plugins)
+			pm.mu.Unlock()
+
+			// BeforeRequest
+			for _, plugin := range registered {
+				plugin.BeforeRequest(r)
+			}
+
+			// HandleRequest (plugins may intercept the request)
+			var handled bool
+			for _, plugin := range registered {
+				if plugin.HandleRequest(w, r) {
+					handled = true
+					break
+				}
+			}
+
+			// Proceed to next if not fully handled
+			if !handled {
+				next.ServeHTTP(w, r)
+			}
+
+			// AfterRequest
+			for _, plugin := range registered {
+				plugin.AfterRequest(w, r)
+			}
+		})
+	}
 }
