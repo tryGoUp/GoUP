@@ -173,18 +173,27 @@ goup start --tui
 
 ## Plugins
 
-GoUP! has a lightweight plugin system that allows you to extend its functionality. 
-The following plugins are included:
+GoUP! has a lightweight plugin system that allows you to extend its 
+functionality. Plugins implement a set of hooks for initialization, request 
+handling, and cleanup:
 
-- **Custom Header Plugin**: Adds custom headers to HTTP responses, configured per domain.
-- **PHP Plugin**: Handles `.php` requests using PHP-FPM.
-- **Auth Plugin**: Protects routes with basic authentication.
-- **NodeJS Plugin**: Handles Node.js applications using `node`.
+- **OnInit()**: Called once when GoUP! starts (useful for global setup).
+- **OnInitForSite(conf config.SiteConfig, logger *log.Logger)**: Called for 
+each site configuration (site-specific setup).
+- **BeforeRequest(r *http.Request)**: Invoked before every request, letting 
+you examine or modify the incoming request.
+- **HandleRequest(w http.ResponseWriter, r *http.Request) bool**: If your 
+plugin wants to fully handle the request (e.g., returning a response on its 
+own), do it here. Return `true` if the request was fully handled (so GoUP! 
+won’t process it further).
+- **AfterRequest(w http.ResponseWriter, r *http.Request)**: Called after each 
+request has been served or intercepted by this plugin.
+- **OnExit()**: Called once when GoUP! is shutting down (for cleanup).
 
 ### Enabling Plugins
 
 To enable plugins, add their configuration in the `plugin_configs` section of 
-the site's JSON configuration file. Example:
+the site’s JSON configuration file. For example:
 
 ```json
 {
@@ -223,118 +232,84 @@ the site's JSON configuration file. Example:
 
 ### Pre-Installed Plugins
 
-#### Custom Header Plugin
+- **Custom Header Plugin**: Adds custom headers to HTTP responses, configured 
+per domain.
+- **PHP Plugin**: Handles `.php` requests using PHP-FPM.
+- **Auth Plugin**: Protects routes with basic authentication.
+- **NodeJS Plugin**: Handles Node.js applications using `node`.
 
-Adds custom headers to HTTP responses. The configuration is a simple key-value pair:
-
-```json
-{
-  "X-Custom-Header": "Hello, World!"
-}
-```
-
-at the site level, not in the `plugin_configs` section.
-
-#### PHP Plugin
-
-Handles `.php` requests using PHP-FPM. The configuration includes the path to the
-PHP-FPM socket:
-
-```json
-{
-  "enable": true,
-  "fpm_addr": "/run/php/php8.2-fpm.sock"
-}
-```
-
-can be both a socket path or an IP address with a port.
-
-#### Auth Plugin
-
-Protects routes with basic authentication. The configuration includes the protected
-paths, credentials, and session expiration time in seconds:
-
-```json
-{
-  "protected_paths": ["/protected.html"],
-  "credentials": {
-    "admin": "password123",
-    "user": "userpass"
-  },
-  "session_expiration": 3600
-}
-```
-
-session expiration is defined in seconds.
-
-#### NodeJS Plugin
-
-Handles Node.js applications using `node`. The configuration includes the port, root
-directory, entry file, and other settings:
-
-```json
-{
-  "enable": true,
-  "port": "3000",
-  "root_dir": "/path/to/node/app",
-  "entry": "server.js",
-  "install_deps": true,
-  "node_path": "/usr/bin/node",
-  "package_manager": "pnpm",
-  "proxy_paths": ["/api/", "/backend/"]
-}
-```
-
-- **port**: The port number to run the Node.js application on, be careful not
-  to use the same port as the GoUP! server and other Node.js applications, GoUp
-  will handle the routing but not the collision of ports.
-- **root_dir**: The path to the Node.js application directory.
-- **entry**: The entry file for the Node.js application (e.g., `server.js`).
-- **install_deps**: Set to `true` to install dependencies using the package
-  manager specified, this will automatically create a `node_modules` directory
-  following the `package.json` instructions.
-- **node_path**: The path to the `node` executable, leave empty to use the
-  system default.
-- **package_manager**: The package manager to use for installing dependencies,
-  can be `npm`, `yarn`, `pnpm`, or any other package manager that follows
-  the same syntax as `npm`. Leaving it blank will default to `npm`.
-- **proxy_paths**: The list of paths to be served by the Node.js application,
-  all other paths will be served by GoUP! as static files or reverse proxies.
-  Note that the paths automatically include all the child paths, so `/api/`
-  will match `/api/v1/` and `/api/v1/users/` as well.
+Each plugin can have its own JSON configuration under `plugin_configs`, which it 
+reads in `OnInitForSite`.
 
 ### Developing Plugins
 
-You can create your own plugins by implementing the `Plugin` interface. Here’s a 
-basic structure:
+You can create your own plugins by implementing the following interface:
+
+```go
+type Plugin interface {
+    Name() string
+    OnInit() error
+    OnInitForSite(conf config.SiteConfig, logger *log.Logger) error
+    BeforeRequest(r *http.Request)
+    HandleRequest(w http.ResponseWriter, r *http.Request) bool
+    AfterRequest(w http.ResponseWriter, r *http.Request)
+    OnExit() error
+}
+```
+
+A minimal example plugin:
 
 ```go
 package myplugin
 
 import (
-	"net/http"
-	"github.com/mirkobrombin/goup/internal/server/middleware"
-	log "github.com/sirupsen/logrus"
+    "net/http"
+
+    "github.com/mirkobrombin/goup/internal/config"
+    log "github.com/sirupsen/logrus"
 )
 
 type MyPlugin struct{}
 
+// Name returns the plugin's name.
 func (p *MyPlugin) Name() string {
-	return "MyPlugin"
+    return "MyPlugin"
 }
 
-func (p *MyPlugin) Init(mwManager *middleware.MiddlewareManager) error {
-	return nil
+// OnInit is called once globally on startup.
+func (p *MyPlugin) OnInit() error {
+    // Perform any global setup here.
+    return nil
 }
 
-func (p *MyPlugin) InitForSite(mwManager *middleware.MiddlewareManager, logger *log.Logger, conf config.SiteConfig) error {
-	mwManager.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			logger.Info("MyPlugin is working!")
-			next.ServeHTTP(w, r)
-		})
-	})
-	return nil
+// OnInitForSite is called for each site configuration.
+func (p *MyPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) error {
+    // Site-specific setup (e.g. reading plugin config).
+    logger.Infof("MyPlugin initialized for site: %s", conf.Domain)
+    return nil
+}
+
+// BeforeRequest is invoked before handling every request.
+func (p *MyPlugin) BeforeRequest(r *http.Request) {
+    // Optionally inspect or modify the request.
+}
+
+// HandleRequest can take over the request entirely if desired.
+// Return true if you want to finalize the response here.
+func (p *MyPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
+    // Example: Just log and let GoUP! continue.
+    return false
+}
+
+// AfterRequest is invoked after the request is served (or handled by this plugin).
+func (p *MyPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {
+    // Any post-processing goes here.
+}
+
+// OnExit is called when GoUP! is shutting down.
+func (p *MyPlugin) OnExit() error {
+    // Cleanup resources if needed.
+    return nil
 }
 ```
 
