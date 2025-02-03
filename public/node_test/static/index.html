@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoUp + Node.js Test</title>
+</head>
+
+<body>
+    <h1>GoUp + Node.js Plugin Test</h1>
+    <button onclick="testAPI()">Test Node API</button>
+    <p id="response"></p>
+
+    <script>
+        function testAPI() {
+            fetch('/api/test')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('response').innerText = JSON.stringify(data);
+                })
+                .catch(error => {
+                    document.getElementById('response').innerText = 'Error: ' + error;
+                });
+        }
+    </script>
+</body>
+
+</html>

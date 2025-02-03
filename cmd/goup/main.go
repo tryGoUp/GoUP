@@ -13,6 +13,7 @@ func main() {
 	pluginManager.Register(&plugins.CustomHeaderPlugin{})
 	pluginManager.Register(&plugins.PHPPlugin{})
 	pluginManager.Register(&plugins.AuthPlugin{})
+	pluginManager.Register(&plugins.NodeJSPlugin{})
 
 	cli.Execute()
 }
