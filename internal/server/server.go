@@ -113,9 +113,13 @@ func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareM
 	// We do not want to start a server if the root directory does not exist
 	// let's fail fast instead.
 	if conf.ProxyPass == "" {
-		if _, err := os.Stat(conf.RootDirectory); os.IsNotExist(err) {
-			logger.Errorf("Root directory does not exist for %s: %v", conf.Domain, err)
-			return
+		// Here we allow empty paths as RootDirectory, this is useful for
+		// proxying requests to other servers by default, like Flask apps.
+		if conf.RootDirectory != "" {
+			if _, err := os.Stat(conf.RootDirectory); os.IsNotExist(err) {
+				logger.Errorf("Root directory does not exist for %s: %v", conf.Domain, err)
+				return
+			}
 		}
 	}
 
