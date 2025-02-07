@@ -9,17 +9,16 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/plugin"
 	log "github.com/sirupsen/logrus"
 )
 
 // AuthPlugin provides HTTP Basic Authentication for protected paths.
 type AuthPlugin struct {
-	// Keeps the parsed config for the plugin.
-	conf AuthPluginConfig
-	// State holds the active sessions.
+	plugin.BasePlugin
+
+	conf  AuthPluginConfig
 	state *AuthPluginState
-	// Logger instance for this plugin.
-	logger *log.Logger
 }
 
 // AuthPluginConfig represents the configuration for the AuthPlugin.
@@ -33,7 +32,6 @@ type AuthPluginConfig struct {
 	SessionExpiration int `json:"session_expiration"`
 }
 
-// session represents an authenticated session.
 type session struct {
 	Username string
 	Expiry   time.Time
@@ -45,28 +43,24 @@ type AuthPluginState struct {
 	mu       sync.RWMutex
 }
 
-// Name returns the name of the plugin.
 func (p *AuthPlugin) Name() string {
 	return "AuthPlugin"
 }
 
-// OnInit is called once during the global plugin initialization.
 func (p *AuthPlugin) OnInit() error {
-	// No global setup needed here for now.
 	return nil
 }
 
-// OnInitForSite is called for each site configuration.
-func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) error {
-	p.logger = logger
+func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
+		return err
+	}
 	p.state = &AuthPluginState{
 		sessions: make(map[string]session),
 	}
 
-	// Try to parse this plugin's config if present.
 	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 	if !ok {
-		// If there's no AuthPlugin config, just do nothing.
 		return nil
 	}
 
@@ -100,7 +94,7 @@ func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) e
 
 	// Validate session expiration
 	if authConfig.SessionExpiration > 86400 {
-		return errors.New("session_expiration cannot exceed 86400 seconds (24 hours)")
+		return errors.New("session_expiration cannot exceed 86400 seconds (24h)")
 	}
 	if authConfig.SessionExpiration < -1 {
 		return errors.New("session_expiration cannot be less than -1")
@@ -110,28 +104,22 @@ func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) e
 
 	// Initialization of the plugin state with optional session cleanup.
 	if p.conf.SessionExpiration != -1 {
-		go p.state.cleanupExpiredSessions(time.Minute, logger)
+		go p.state.cleanupExpiredSessions(time.Minute, p.DomainLogger)
 	}
 
-	logger.Infof("Initializing AuthPlugin for domain: %s with session_expiration: %d",
-		conf.Domain, authConfig.SessionExpiration)
+	p.DomainLogger.Infof("[AuthPlugin] Initialized for domain=%s with session_expiration=%d",
+		conf.Domain, p.conf.SessionExpiration)
 
 	return nil
 }
 
-// BeforeRequest is invoked before serving each request.
-func (p *AuthPlugin) BeforeRequest(r *http.Request) {
-	// No specific pre-processing is needed here; logic is in HandleRequest.
-}
+func (p *AuthPlugin) BeforeRequest(r *http.Request) {}
 
-// HandleRequest can fully handle the request, returning true if it does so.
 func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
-	// If there's no plugin config, do nothing.
 	if p.conf.Credentials == nil {
 		return false
 	}
 
-	// Check if the path is protected.
 	protected := false
 	for _, path := range p.conf.ProtectedPaths {
 		if strings.HasPrefix(r.URL.Path, path) {
@@ -147,8 +135,8 @@ func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool 
 	// The path is protected, check session or credentials.
 	ip := getClientIP(r)
 	if sess, exists := p.state.getSession(ip); exists {
-		p.logger.Infof("Session valid for IP: %s, user: %s", ip, sess.Username)
-		return false // Let the next handler continue.
+		p.DomainLogger.Infof("[AuthPlugin] Valid session for IP=%s user=%s", ip, sess.Username)
+		return false
 	}
 
 	// No valid session, check for Authorization header.
@@ -173,21 +161,15 @@ func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool 
 	}
 
 	// Create a new session
-	p.state.createSession(ip, username, p.conf.SessionExpiration, p.logger)
-	p.logger.Infof("Authenticated IP: %s, user: %s", ip, username)
+	p.state.createSession(ip, username, p.conf.SessionExpiration, p.PluginLogger)
+	p.PluginLogger.Infof("[AuthPlugin] Authenticated IP=%s user=%s", ip, username)
 
-	// Return false to continue normal flow.
 	return false
 }
 
-// AfterRequest is invoked after the request has been served or handled.
-func (p *AuthPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {
-	// Nothing to do here in this plugin.
-}
+func (p *AuthPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
 
-// OnExit is called when the server is shutting down.
 func (p *AuthPlugin) OnExit() error {
-	// No cleanup needed, but you could stop session cleanup goroutines if needed.
 	return nil
 }
 
@@ -200,6 +182,7 @@ func getClientIP(r *http.Request) string {
 		// X-Forwarded-For may contain multiple IPs, take the first one
 		return strings.Split(ips, ",")[0]
 	}
+
 	// Fallback to RemoteAddr
 	ip := r.RemoteAddr
 	if colonIndex := strings.LastIndex(ip, ":"); colonIndex != -1 {
@@ -263,9 +246,9 @@ func (s *AuthPluginState) createSession(ip, username string, expiration int, log
 		Expiry:   expiry,
 	}
 	if expiration != -1 {
-		logger.Infof("Session created for IP: %s, user: %s, expires at: %v", ip, username, expiry)
+		logger.Infof("[AuthPlugin] Created session IP=%s user=%s expires=%v", ip, username, expiry)
 	} else {
-		logger.Infof("Session created for IP: %s, user: %s, never expires", ip, username)
+		logger.Infof("[AuthPlugin] Created session IP=%s user=%s never expires", ip, username)
 	}
 }
 
@@ -278,7 +261,7 @@ func (s *AuthPluginState) cleanupExpiredSessions(interval time.Duration, logger 
 		for ip, sess := range s.sessions {
 			if !sess.Expiry.IsZero() && sess.Expiry.Before(time.Now()) {
 				delete(s.sessions, ip)
-				logger.Infof("Session expired and removed for IP: %s, user: %s", ip, sess.Username)
+				logger.Infof("[AuthPlugin] Session expired removed IP=%s user=%s", ip, sess.Username)
 			}
 		}
 		s.mu.Unlock()

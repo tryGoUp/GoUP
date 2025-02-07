@@ -7,13 +7,15 @@ import (
 	"strings"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/plugin"
 	log "github.com/sirupsen/logrus"
 	"github.com/yookoala/gofast"
 )
 
 // PHPPlugin handles the execution of PHP scripts via PHP-FPM.
 type PHPPlugin struct {
-	logger      *log.Logger
+	plugin.BasePlugin
+
 	siteConfigs map[string]PHPPluginConfig
 }
 
@@ -23,24 +25,21 @@ type PHPPluginConfig struct {
 	FPMAddr string `json:"fpm_addr"`
 }
 
-// Name returns the name of the plugin.
 func (p *PHPPlugin) Name() string {
 	return "PHPPlugin"
 }
 
-// OnInit registers any global plugin logic (none in this case).
 func (p *PHPPlugin) OnInit() error {
 	p.siteConfigs = make(map[string]PHPPluginConfig)
 	return nil
 }
 
-// OnInitForSite initializes the plugin for a specific site.
-func (p *PHPPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) error {
-	if p.logger == nil {
-		p.logger = logger
+func (p *PHPPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
+		return err
 	}
 
-	// Retrieve plugin config from conf.PluginConfigs
+	// Retrieve site-specific plugin config
 	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 	if !ok {
 		// No config for PHP, store default disabled config.
@@ -62,10 +61,8 @@ func (p *PHPPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) er
 	return nil
 }
 
-// BeforeRequest is invoked before serving each request (unused here).
 func (p *PHPPlugin) BeforeRequest(r *http.Request) {}
 
-// HandleRequest can fully handle the request, returning true if it does so.
 func (p *PHPPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
 	host := r.Host
 	if idx := strings.Index(host, ":"); idx != -1 {
@@ -82,7 +79,7 @@ func (p *PHPPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	p.logger.Infof("Handling PHP request: %s", r.URL.Path)
+	p.DomainLogger.Infof("[PHPPlugin] Handling PHP request: %s (domain=%s)", r.URL.Path, host)
 
 	// If the user hasn't specified a FPM address, use default.
 	phpFPMAddr := cfg.FPMAddr
@@ -90,8 +87,7 @@ func (p *PHPPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
 		phpFPMAddr = "127.0.0.1:9000"
 	}
 
-	rootDir := p.getRootDirectory(r) // We'll retrieve it from somewhere or do a fallback.
-
+	rootDir := p.getRootDirectory(r)
 	scriptFilename := filepath.Join(rootDir, r.URL.Path)
 	if _, err := os.Stat(scriptFilename); os.IsNotExist(err) {
 		http.NotFound(w, r)
@@ -125,10 +121,8 @@ func (p *PHPPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// AfterRequest is invoked after the request has been served or handled.
 func (p *PHPPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
 
-// OnExit is called when the server is shutting down.
 func (p *PHPPlugin) OnExit() error {
 	return nil
 }
@@ -136,7 +130,5 @@ func (p *PHPPlugin) OnExit() error {
 // getRootDirectory tries to derive the site root from the request.
 // If there's a site-specific approach, do it here; otherwise, fallback.
 func (p *PHPPlugin) getRootDirectory(r *http.Request) string {
-	// TODO: If needed, store site root in a domain->root map, or parse from
-	//       the request. For now, fallback to a default or just return ".".
 	return "."
 }

@@ -1,8 +1,10 @@
 package plugin
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
@@ -33,8 +35,14 @@ type PluginManager struct {
 	plugins []Plugin
 }
 
-// DefaultPluginManager is the default instance used by the application.
-var DefaultPluginManager *PluginManager
+var (
+	// DefaultPluginManager is the default instance used by the application.
+	DefaultPluginManager *PluginManager
+
+	progressBarRunning  bool
+	progressBarStopChan chan bool
+	progressBarLock     sync.Mutex
+)
 
 // NewPluginManager creates a new PluginManager instance.
 func NewPluginManager() *PluginManager {
@@ -136,4 +144,43 @@ func PluginMiddleware(pm *PluginManager) middleware.MiddlewareFunc {
 			}
 		})
 	}
+}
+
+// ShowProgressBar displays a basic spinner on stdout for a long-running task.
+func ShowProgressBar(taskName string) {
+	progressBarLock.Lock()
+	defer progressBarLock.Unlock()
+	if progressBarRunning {
+		return
+	}
+	progressBarRunning = true
+	progressBarStopChan = make(chan bool)
+
+	go func() {
+		chars := []rune{'|', '/', '-', '\\'}
+		idx := 0
+		for {
+			select {
+			case <-progressBarStopChan:
+				return
+			default:
+				fmt.Printf("\r%s %c", taskName, chars[idx])
+				idx = (idx + 1) % len(chars)
+				time.Sleep(150 * time.Millisecond)
+			}
+		}
+	}()
+}
+
+// HideProgressBar stops the spinner and clears the line.
+func HideProgressBar() {
+	progressBarLock.Lock()
+	defer progressBarLock.Unlock()
+	if !progressBarRunning {
+		return
+	}
+	progressBarStopChan <- true
+	close(progressBarStopChan)
+	progressBarRunning = false
+	fmt.Printf("\r\033[K")
 }
