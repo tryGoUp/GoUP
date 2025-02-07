@@ -15,6 +15,7 @@ func main() {
 	pluginManager.Register(&plugins.PHPPlugin{})
 	pluginManager.Register(&plugins.AuthPlugin{})
 	pluginManager.Register(&plugins.NodeJSPlugin{})
+	pluginManager.Register(&plugins.PythonPlugin{})
 
 	cli.Execute()
 }
