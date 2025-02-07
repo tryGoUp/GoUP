@@ -16,6 +16,8 @@ func main() {
 	pluginManager.Register(&plugins.AuthPlugin{})
 	pluginManager.Register(&plugins.NodeJSPlugin{})
 	pluginManager.Register(&plugins.PythonPlugin{})
+	pluginManager.Register(&plugins.DockerBasePlugin{}) // currently here for testig purposes
+	pluginManager.Register(&plugins.DockerStandardPlugin{})
 
 	cli.Execute()
 }
