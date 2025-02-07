@@ -179,7 +179,9 @@ handling, and cleanup:
 
 - **OnInit()**: Called once when GoUP! starts (useful for global setup).
 - **OnInitForSite(conf config.SiteConfig, logger *log.Logger)**: Called for 
-each site configuration (site-specific setup).
+each site configuration (site-specific setup). Within this, you usually call 
+a helper like `p.SetupLoggers(conf, p.Name(), logger)` if you’re using the 
+built-in \`BasePlugin\` approach for loggers.
 - **BeforeRequest(r *http.Request)**: Invoked before every request, letting 
 you examine or modify the incoming request.
 - **HandleRequest(w http.ResponseWriter, r *http.Request) bool**: If your 
@@ -230,13 +232,41 @@ the site’s JSON configuration file. For example:
 }
 ```
 
+### Example: NodeJSPlugin
+
+Below is an **excerpt** from the built-in **NodeJSPlugin**. Notice how it embeds 
+a `BasePlugin` for convenient log handling:
+
+```go
+type NodeJSPlugin struct {
+    plugin.BasePlugin  // provides DomainLogger + PluginLogger
+    mu       sync.Mutex
+    process  *os.Process
+
+    siteConfigs map[string]NodeJSPluginConfig
+}
+
+func (p *NodeJSPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+    // Initialize domain + plugin loggers (for console vs plugin-specific logs)
+    if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
+        return err
+    }
+    // Parse plugin-specific JSON config, etc.
+    ...
+}
+```
+
+Inside the code, we have **two** loggers:
+- **`p.DomainLogger`** for messages shown in the console + domain log file 
+(e.g., "Delegating path=... to Node.js").
+- **`p.PluginLogger`** for plugin-specific logs only (in the dedicated `NodeJSPlugin.log`).
+
 ### Pre-Installed Plugins
 
-- **Custom Header Plugin**: Adds custom headers to HTTP responses, configured 
-per domain.
+- **Custom Header Plugin**: Adds custom headers to HTTP responses.
 - **PHP Plugin**: Handles `.php` requests using PHP-FPM.
 - **Auth Plugin**: Protects routes with basic authentication.
-- **NodeJS Plugin**: Handles Node.js applications using `node`.
+- **NodeJS Plugin**: Handles Node.js applications with Node.
 
 Each plugin can have its own JSON configuration under `plugin_configs`, which it 
 reads in `OnInitForSite`.
@@ -264,51 +294,32 @@ package myplugin
 
 import (
     "net/http"
-
     "github.com/mirkobrombin/goup/internal/config"
+    "github.com/mirkobrombin/goup/internal/plugin"
     log "github.com/sirupsen/logrus"
 )
 
-type MyPlugin struct{}
+type MyPlugin struct {
+    plugin.BasePlugin // optional embedding if you want domain + plugin logs
+}
 
-// Name returns the plugin's name.
 func (p *MyPlugin) Name() string {
     return "MyPlugin"
 }
-
-// OnInit is called once globally on startup.
 func (p *MyPlugin) OnInit() error {
-    // Perform any global setup here.
     return nil
 }
-
-// OnInitForSite is called for each site configuration.
 func (p *MyPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) error {
-    // Site-specific setup (e.g. reading plugin config).
-    logger.Infof("MyPlugin initialized for site: %s", conf.Domain)
+    // If you want domain + plugin logs:
+    p.SetupLoggers(conf, p.Name(), logger)
     return nil
 }
-
-// BeforeRequest is invoked before handling every request.
-func (p *MyPlugin) BeforeRequest(r *http.Request) {
-    // Optionally inspect or modify the request.
-}
-
-// HandleRequest can take over the request entirely if desired.
-// Return true if you want to finalize the response here.
+func (p *MyPlugin) BeforeRequest(r *http.Request) {}
 func (p *MyPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
-    // Example: Just log and let GoUP! continue.
     return false
 }
-
-// AfterRequest is invoked after the request is served (or handled by this plugin).
-func (p *MyPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {
-    // Any post-processing goes here.
-}
-
-// OnExit is called when GoUP! is shutting down.
+func (p *MyPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
 func (p *MyPlugin) OnExit() error {
-    // Cleanup resources if needed.
     return nil
 }
 ```
