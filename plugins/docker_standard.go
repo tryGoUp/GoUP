@@ -124,14 +124,13 @@ func (d *DockerStandardPlugin) HandleRequest(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	// If proxy path is "/" use the container's root.
+	targetURL := fmt.Sprintf("http://0.0.0.0:%s", state.config.ContainerPort)
 	if len(state.config.ProxyPaths) == 1 && state.config.ProxyPaths[0] == "/" {
-		targetURL := fmt.Sprintf("http://0.0.0.0:%s", state.config.ContainerPort)
 		d.proxyToContainer(targetURL, w, r)
 		return true
 	}
 	for _, prefix := range state.config.ProxyPaths {
 		if strings.HasPrefix(r.URL.Path, prefix) {
-			targetURL := fmt.Sprintf("http://0.0.0.0:%s", state.config.ContainerPort)
 			if r.URL.RawQuery != "" {
 				targetURL += "?" + r.URL.RawQuery
 			}
@@ -167,12 +166,17 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 	if state.containerID != "" {
 		return nil
 	}
-	existingID, err := GetRunningContainer(state.config.CLICommand, state.config.DockerfilePath, state.config.ImageName)
-	if err == nil && existingID != "" {
-		state.containerID = existingID
+
+	// Generate unique container name using domain and container port.
+	containerName := fmt.Sprintf("goup_%s_%s", domain, state.config.ContainerPort)
+
+	// Checking if a container with this unique name is already running.
+	existingID, err := RunDockerCLI(state.config.CLICommand, state.config.DockerfilePath, "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.ID}}")
+	if err == nil && strings.TrimSpace(existingID) != "" {
+		state.containerID = strings.TrimSpace(existingID)
 		return nil
 	}
-	d.DomainLogger.Infof("[DockerStandardPlugin] Starting container for domain=%s", domain)
+	d.DomainLogger.Infof("[DockerStandardPlugin] Starting container for domain=%s with tag %s", domain, containerName)
 	cliCmd := state.config.CLICommand
 	if cliCmd == "" {
 		cliCmd = "docker"
@@ -207,7 +211,7 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 		}
 		d.PluginLogger.Infof("Pull output: %s", pullOutput)
 	}
-	runArgs := []string{"run", "-d", "-p", fmt.Sprintf("%s:%s", state.config.ContainerPort, state.config.ContainerPort)}
+	runArgs := []string{"run", "-d", "--name", containerName, "-p", fmt.Sprintf("%s:%s", state.config.ContainerPort, state.config.ContainerPort)}
 	runArgs = append(runArgs, state.config.RunArgs...)
 	runArgs = append(runArgs, state.config.ImageName)
 	d.PluginLogger.Infof("[DockerStandardPlugin] Running container with command: %s %s", cliCmd, strings.Join(runArgs, " "))
