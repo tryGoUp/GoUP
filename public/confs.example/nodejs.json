@@ -1,0 +1,21 @@
+{
+    "domain": "example.com",
+    "port": 8080,
+    "root_directory": "/home/mirko/Projects/GoUp/GoUP/public/node_test/static/",
+    "request_timeout": 60,
+    "plugin_configs": {
+        "NodeJSPlugin": {
+            "enable": true,
+            "port": "3000",
+            "root_dir": "/home/mirko/Projects/GoUp/GoUP/public/node_test/app/",
+            "entry": "server.js",
+            "install_deps": true,
+            "node_path": "/usr/bin/node",
+            "package_manager": "pnpm",
+            "proxy_paths": [
+                "/api/",
+                "/backend/"
+            ]
+        }
+    }
+}

@@ -1,0 +1,24 @@
+{
+    "domain": "test.com",
+    "port": 8081,
+    "root_directory": "",
+    "request_timeout": 60,
+    "plugin_configs": {
+        "PythonPlugin": {
+            "enable": true,
+            "port": "3001",
+            "root_dir": "/home/mirko/Projects/GoUp/GoUP/public/python_test/app/",
+            "app_type": "flask",
+            "install_deps": true,
+            "use_venv": true,
+            "env_vars": {
+                "FLASK_APP": "app.py",
+                "FLASK_ENV": "development"
+            },
+            "package_manager": "pip",
+            "proxy_paths": [
+                "/"
+            ]
+        }
+    }
+}

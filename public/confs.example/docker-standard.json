@@ -1,0 +1,30 @@
+{
+    "domain": "test.com",
+    "port": 8080,
+    "root_directory": "",
+    "request_timeout": 60,
+    "plugin_configs": {
+        "DockerStandardPlugin": {
+            "enable": true,
+            "dockerfile_path": "",
+            "image_name": "ghost:latest",
+            "container_port": "2368",
+            "cli_command": "podman",
+            "build_args": {},
+            "run_args": [
+                "--rm",
+                "-p",
+                "2368:2368",
+                "-v",
+                "/home/mirko/ghost-content:/var/lib/ghost/content",
+                "-v",
+                "/home/mirko/ghost-content/config.production.json:/var/lib/ghost/config.production.json",
+                "-e",
+                "NODE_ENV=production"
+            ],
+            "proxy_paths": [
+                "/"
+            ]
+        }
+    }
+}
