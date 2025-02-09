@@ -12,8 +12,12 @@ import (
 	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
+	"github.com/mirkobrombin/goup/internal/tools"
 	"github.com/mirkobrombin/goup/internal/tui"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpadaptor"
 )
 
 var (
@@ -105,6 +109,15 @@ func StartServers(configs []config.SiteConfig, enableTUI bool, enableBench bool)
 	}
 }
 
+func anyHasSSL(confs []config.SiteConfig) bool {
+	for _, c := range confs {
+		if c.SSL.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
 // startSingleServer starts a server for a single site configuration.
 func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareManager, pm *plugin.PluginManager) {
 	identifier := conf.Domain
@@ -139,8 +152,15 @@ func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareM
 		return
 	}
 
-	server := createHTTPServer(conf, handler)
-	startServerInstance(server, conf, logger)
+	// If SSL is enabled, keep the original net/http + quic-go approach, since
+	// fasthttp does not support QUIC (yet?).
+	if conf.SSL.Enabled {
+		server := createHTTPServer(conf, handler)
+		startServerInstance(server, conf, logger)
+	} else {
+		// fasthttp for all other cases.
+		startFasthttpServer(conf, handler, logger)
+	}
 }
 
 // startVirtualHostServer starts a server that handles multiple domains on the same port.
@@ -148,48 +168,127 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 	identifier := fmt.Sprintf("port_%d", port)
 	logger := loggers[identifier]
 
-	radixTree := radix.New()
+	// If any of the sites has SSL enabled, we need to use the net/http server.
+	if anyHasSSL(configs) {
+		radixTree := radix.New()
 
-	for _, conf := range configs {
-		if conf.ProxyPass == "" {
-			if _, err := os.Stat(conf.RootDirectory); os.IsNotExist(err) {
-				logger.Errorf("Root directory does not exist for %s: %v", conf.Domain, err)
+		for _, conf := range configs {
+			if conf.ProxyPass == "" {
+				if _, err := os.Stat(conf.RootDirectory); os.IsNotExist(err) {
+					logger.Errorf("Root directory does not exist for %s: %v", conf.Domain, err)
+				}
+			}
+
+			if err := pm.InitPluginsForSite(conf, logger); err != nil {
+				logger.Errorf("Error initializing plugins for site %s: %v", conf.Domain, err)
+				continue
+			}
+
+			mwManagerCopy := mwManager.Copy()
+			mwManagerCopy.Use(plugin.PluginMiddleware(pm))
+
+			handler, err := createHandler(conf, logger, identifier, mwManagerCopy)
+			if err != nil {
+				logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
+				continue
+			}
+
+			radixTree.Insert(conf.Domain, handler)
+		}
+
+		serverConf := config.SiteConfig{
+			Port: port,
+		}
+
+		mainHandler := func(w_ http.ResponseWriter, r_ *http.Request) {
+			host := r_.Host
+			if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
+				host = host[:colonIndex]
+			}
+
+			if handler, found := radixTree.Get(host); found {
+				handler.(http.Handler).ServeHTTP(w_, r_)
+			} else {
+				http.NotFound(w_, r_)
 			}
 		}
 
-		if err := pm.InitPluginsForSite(conf, logger); err != nil {
-			logger.Errorf("Error initializing plugins for site %s: %v", conf.Domain, err)
-			continue
+		server := createHTTPServer(serverConf, http.HandlerFunc(mainHandler))
+		startServerInstance(server, serverConf, logger)
+
+	} else {
+		// fasthttp for all other cases.
+		radixTree := radix.New()
+
+		for _, conf := range configs {
+			if conf.ProxyPass == "" {
+				if _, err := os.Stat(conf.RootDirectory); os.IsNotExist(err) {
+					logger.Errorf("Root directory does not exist for %s: %v", conf.Domain, err)
+				}
+			}
+
+			if err := pm.InitPluginsForSite(conf, logger); err != nil {
+				logger.Errorf("Error initializing plugins for site %s: %v", conf.Domain, err)
+				continue
+			}
+
+			mwManagerCopy := mwManager.Copy()
+			mwManagerCopy.Use(plugin.PluginMiddleware(pm))
+
+			nethttpHandler, err := createHandler(conf, logger, identifier, mwManagerCopy)
+			if err != nil {
+				logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
+				continue
+			}
+
+			fasthttpHandler := fasthttpadaptor.NewFastHTTPHandler(nethttpHandler)
+			radixTree.Insert(conf.Domain, fasthttpHandler)
 		}
 
-		mwManagerCopy := mwManager.Copy()
-		mwManagerCopy.Use(plugin.PluginMiddleware(pm))
+		fasthttpMainHandler := func(ctx *fasthttp.RequestCtx) {
+			host := string(ctx.Host())
+			if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
+				host = host[:colonIndex]
+			}
 
-		handler, err := createHandler(conf, logger, identifier, mwManagerCopy)
+			if handler, found := radixTree.Get(host); found {
+				handler.(fasthttp.RequestHandler)(ctx)
+			} else {
+				ctx.SetStatusCode(fasthttp.StatusNotFound)
+			}
+		}
+
+		serverConf := config.SiteConfig{
+			Port: port,
+		}
+
+		server := &fasthttp.Server{
+			Handler:      fasthttpMainHandler,
+			ReadTimeout:  tools.TimeDurationOrDefault(serverConf.RequestTimeout),
+			WriteTimeout: tools.TimeDurationOrDefault(serverConf.RequestTimeout),
+		}
+
+		logger.Infof("Serving on HTTP port %d with fasthttp", port)
+		err := server.ListenAndServe(fmt.Sprintf(":%d", port))
 		if err != nil {
-			logger.Errorf("Error creating handler for %s: %v", conf.Domain, err)
-			continue
+			logger.Errorf("Fasthttp server error on port %d: %v", port, err)
 		}
+	}
+}
 
-		radixTree.Insert(conf.Domain, handler)
+// startFasthttpServer starts a fasthttp server for the given site configuration.
+func startFasthttpServer(conf config.SiteConfig, nethttpHandler http.Handler, logger *log.Logger) {
+	fasthttpHandler := fasthttpadaptor.NewFastHTTPHandler(nethttpHandler)
+
+	server := &fasthttp.Server{
+		Handler:      fasthttpHandler,
+		ReadTimeout:  tools.TimeDurationOrDefault(conf.RequestTimeout),
+		WriteTimeout: tools.TimeDurationOrDefault(conf.RequestTimeout),
 	}
 
-	serverConf := config.SiteConfig{
-		Port: port,
+	logger.Infof("Serving on HTTP port %d with fasthttp", conf.Port)
+	err := server.ListenAndServe(fmt.Sprintf(":%d", conf.Port))
+	if err != nil {
+		logger.Errorf("Fasthttp server error on port %d: %v", conf.Port, err)
 	}
-	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-		if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
-			host = host[:colonIndex]
-		}
-
-		if handler, found := radixTree.Get(host); found {
-			handler.(http.Handler).ServeHTTP(w, r)
-		} else {
-			http.NotFound(w, r)
-		}
-	})
-
-	server := createHTTPServer(serverConf, mainHandler)
-	startServerInstance(server, serverConf, logger)
 }
