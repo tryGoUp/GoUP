@@ -12,6 +12,7 @@ import (
 
 	"github.com/mirkobrombin/goup/internal/config"
 	"github.com/mirkobrombin/goup/internal/plugin"
+	"github.com/mirkobrombin/goup/internal/tools"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -29,6 +30,7 @@ type DockerStandardConfig struct {
 
 type dockerStandardState struct {
 	containerID string
+	hostPort    string // dynamically assigned host port
 	config      DockerStandardConfig
 }
 
@@ -123,8 +125,8 @@ func (d *DockerStandardPlugin) HandleRequest(w http.ResponseWriter, r *http.Requ
 			return false
 		}
 	}
-	// If proxy path is "/" use the container's root.
-	targetURL := fmt.Sprintf("http://0.0.0.0:%s", state.config.ContainerPort)
+	// Build target URL using the assigned host port.
+	targetURL := fmt.Sprintf("http://0.0.0.0:%s", state.hostPort)
 	if len(state.config.ProxyPaths) == 1 && state.config.ProxyPaths[0] == "/" {
 		d.proxyToContainer(targetURL, w, r)
 		return true
@@ -151,6 +153,7 @@ func (d *DockerStandardPlugin) OnExit() error {
 			out, err := RunDockerCLI(state.config.CLICommand, state.config.DockerfilePath, "rm", "-f", state.containerID)
 			d.PluginLogger.Infof("Stopped container for domain %s: %s (err=%v)", domain, out, err)
 			state.containerID = ""
+			state.hostPort = ""
 		}
 	}
 	return nil
@@ -170,12 +173,6 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 	// Generate unique container name using domain and container port.
 	containerName := fmt.Sprintf("goup_%s_%s", domain, state.config.ContainerPort)
 
-	// Checking if a container with this unique name is already running.
-	existingID, err := RunDockerCLI(state.config.CLICommand, state.config.DockerfilePath, "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.ID}}")
-	if err == nil && strings.TrimSpace(existingID) != "" {
-		state.containerID = strings.TrimSpace(existingID)
-		return nil
-	}
 	d.DomainLogger.Infof("[DockerStandardPlugin] Starting container for domain=%s with tag %s", domain, containerName)
 	cliCmd := state.config.CLICommand
 	if cliCmd == "" {
@@ -211,7 +208,14 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 		}
 		d.PluginLogger.Infof("Pull output: %s", pullOutput)
 	}
-	runArgs := []string{"run", "-d", "--name", containerName, "-p", fmt.Sprintf("%s:%s", state.config.ContainerPort, state.config.ContainerPort)}
+	// Allocate a free host port from a high range.
+	hostPort, err := tools.GetFreePort()
+	if err != nil {
+		return fmt.Errorf("failed to get free port: %v", err)
+	}
+
+	// Run container with host port mapping using the free port.
+	runArgs := []string{"run", "-d", "--name", containerName, "-p", fmt.Sprintf("%s:%s", hostPort, state.config.ContainerPort)}
 	runArgs = append(runArgs, state.config.RunArgs...)
 	runArgs = append(runArgs, state.config.ImageName)
 	d.PluginLogger.Infof("[DockerStandardPlugin] Running container with command: %s %s", cliCmd, strings.Join(runArgs, " "))
@@ -220,6 +224,7 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 		return fmt.Errorf("run error: %v, output: %s", err, runOutput)
 	}
 	state.containerID = strings.TrimSpace(runOutput)
+	state.hostPort = hostPort
 	return nil
 }
 
