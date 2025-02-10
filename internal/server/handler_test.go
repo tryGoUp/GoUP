@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
-	log "github.com/sirupsen/logrus"
 )
 
 func TestCreateHandler_Static(t *testing.T) {
@@ -33,11 +33,16 @@ func TestCreateHandler_Static(t *testing.T) {
 		},
 		RequestTimeout: 60,
 	}
-	logger := log.New()
-	logger.Out = os.Stderr
+
+	testLogger, err := logger.NewLogger("test_handler_static", nil)
+	if err != nil {
+		t.Fatalf("Error creating logger: %v", err)
+	}
+	testLogger.SetOutput(httptest.NewRecorder())
+
 	identifier := "test"
 
-	handler, err := createHandler(conf, logger, identifier, &middleware.MiddlewareManager{})
+	handler, err := createHandler(conf, testLogger, identifier, &middleware.MiddlewareManager{})
 	if err != nil {
 		t.Fatalf("Error creating handler: %v", err)
 	}
@@ -73,11 +78,16 @@ func TestCreateHandler_ProxyPass(t *testing.T) {
 		CustomHeaders:  map[string]string{},
 		RequestTimeout: 60,
 	}
-	logger := log.New()
-	logger.Out = os.Stderr
+
+	testLogger, err := logger.NewLogger("test_handler_proxy", nil)
+	if err != nil {
+		t.Fatalf("Error creating logger: %v", err)
+	}
+	testLogger.SetOutput(httptest.NewRecorder())
+
 	identifier := "test"
 
-	handler, err := createHandler(conf, logger, identifier, &middleware.MiddlewareManager{})
+	handler, err := createHandler(conf, testLogger, identifier, &middleware.MiddlewareManager{})
 	if err != nil {
 		t.Fatalf("Error creating handler: %v", err)
 	}

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
-	log "github.com/sirupsen/logrus"
 )
 
 // Plugin defines the interface for GoUP plugins.
@@ -18,7 +18,7 @@ type Plugin interface {
 	// OnInit is called once during the global plugin initialization.
 	OnInit() error
 	// OnInitForSite is called for each site configuration.
-	OnInitForSite(conf config.SiteConfig, logger *log.Logger) error
+	OnInitForSite(conf config.SiteConfig, logger *logger.Logger) error
 	// BeforeRequest is invoked before serving each request.
 	BeforeRequest(r *http.Request)
 	// HandleRequest can fully handle the request, returning true if it does so.
@@ -57,7 +57,6 @@ func SetDefaultPluginManager(pm *PluginManager) {
 }
 
 // GetPluginManagerInstance returns the default PluginManager instance.
-// If it is not set, a new one is created.
 func GetPluginManagerInstance() *PluginManager {
 	if DefaultPluginManager == nil {
 		DefaultPluginManager = NewPluginManager()
@@ -86,12 +85,12 @@ func (pm *PluginManager) InitPlugins() error {
 }
 
 // InitPluginsForSite calls OnInitForSite on all plugins.
-func (pm *PluginManager) InitPluginsForSite(conf config.SiteConfig, logger *log.Logger) error {
+func (pm *PluginManager) InitPluginsForSite(conf config.SiteConfig, l *logger.Logger) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	for _, plugin := range pm.plugins {
-		if err := plugin.OnInitForSite(conf, logger); err != nil {
+		if err := plugin.OnInitForSite(conf, l); err != nil {
 			return err
 		}
 	}

@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/tui"
-	log "github.com/sirupsen/logrus"
 )
 
 // LoggingMiddleware logs HTTP requests.
-func LoggingMiddleware(logger *log.Logger, domain string, identifier string) MiddlewareFunc {
+func LoggingMiddleware(l *logger.Logger, domain string, identifier string) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -29,22 +29,18 @@ func LoggingMiddleware(logger *log.Logger, domain string, identifier string) Mid
 				remoteAddr = ips
 			}
 
-			logger.WithFields(log.Fields{
+			fields := logger.Fields{
 				"method":       r.Method,
 				"url":          r.URL.String(),
 				"remote_addr":  remoteAddr,
 				"status_code":  rw.statusCode,
 				"duration_sec": duration.Seconds(),
-			}).Info("Handled request")
+				"domain":       domain,
+			}
+			l.WithFields(fields).Info("Handled request")
 
 			if tui.IsEnabled() {
-				tui.UpdateLog(identifier, logger.WithFields(log.Fields{
-					"method":       r.Method,
-					"url":          r.URL.String(),
-					"remote_addr":  remoteAddr,
-					"status_code":  rw.statusCode,
-					"duration_sec": duration.Seconds(),
-				}))
+				tui.UpdateLog(identifier, fields)
 			}
 		})
 	}
@@ -66,8 +62,8 @@ func BenchmarkMiddleware() MiddlewareFunc {
 			next.ServeHTTP(w, r)
 
 			duration := time.Since(start)
-			formattedDuration := formatDuration(duration)
-			fmt.Printf("\033[33;40m⏲ Benchmark: %s %s completed in %s\033[0m\n", r.Method, r.URL.Path, formattedDuration)
+			fmt.Printf("\033[33;40m⏲ Benchmark: %s %s completed in %s\033[0m\n",
+				r.Method, r.URL.Path, formatDuration(duration))
 		})
 	}
 }

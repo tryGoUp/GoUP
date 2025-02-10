@@ -6,24 +6,26 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/mirkobrombin/goup/internal/logger"
 )
 
 func TestLoggingMiddleware(t *testing.T) {
-	logger := log.New()
-	logger.Out = httptest.NewRecorder() // Discard output for testing
+	testLogger, err := logger.NewLogger("test_middleware_logging", nil)
+	if err != nil {
+		t.Fatalf("Error creating logger: %v", err)
+	}
+	testLogger.SetOutput(httptest.NewRecorder())
 
 	identifier := "test_identifier"
+	domain := "test_domain"
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
 
-	// Get the middleware function
-	loggingMiddleware := LoggingMiddleware(logger, "test_domain", identifier)
-
 	// Apply middleware to the handler
+	loggingMiddleware := LoggingMiddleware(testLogger, domain, identifier)
 	middlewareHandler := loggingMiddleware(handler)
 
 	req := httptest.NewRequest("GET", "http://example.com/test", nil)

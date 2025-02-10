@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
-	log "github.com/sirupsen/logrus"
 )
 
 // AuthPlugin provides HTTP Basic Authentication for protected paths.
@@ -51,13 +51,11 @@ func (p *AuthPlugin) OnInit() error {
 	return nil
 }
 
-func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.Logger) error {
 	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
 		return err
 	}
-	p.state = &AuthPluginState{
-		sessions: make(map[string]session),
-	}
+	p.state = &AuthPluginState{sessions: make(map[string]session)}
 
 	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 	if !ok {
@@ -168,10 +166,7 @@ func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool 
 }
 
 func (p *AuthPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
-
-func (p *AuthPlugin) OnExit() error {
-	return nil
-}
+func (p *AuthPlugin) OnExit() error                                       { return nil }
 
 // getClientIP extracts the client's IP address from the request.
 func getClientIP(r *http.Request) string {
@@ -205,8 +200,7 @@ func parseBasicAuth(authHeader string) (username, password string, ok bool) {
 	if len(parts) != 2 {
 		return
 	}
-	username = parts[0]
-	password = parts[1]
+	username, password = parts[0], parts[1]
 	ok = true
 	return
 }
@@ -234,26 +228,25 @@ func (s *AuthPluginState) getSession(ip string) (session, bool) {
 }
 
 // createSession creates a new session for the given IP and username.
-func (s *AuthPluginState) createSession(ip, username string, expiration int, logger *log.Logger) {
+func (s *AuthPluginState) createSession(ip, username string, expiration int, l *logger.Logger) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	var expiry time.Time
 	if expiration != -1 {
 		expiry = time.Now().Add(time.Duration(expiration) * time.Second)
 	}
-	s.sessions[ip] = session{
-		Username: username,
-		Expiry:   expiry,
-	}
+	s.sessions[ip] = session{Username: username, Expiry: expiry}
+
 	if expiration != -1 {
-		logger.Infof("[AuthPlugin] Created session IP=%s user=%s expires=%v", ip, username, expiry)
+		l.Infof("[AuthPlugin] Created session IP=%s user=%s expires=%v", ip, username, expiry)
 	} else {
-		logger.Infof("[AuthPlugin] Created session IP=%s user=%s never expires", ip, username)
+		l.Infof("[AuthPlugin] Created session IP=%s user=%s never expires", ip, username)
 	}
 }
 
 // cleanupExpiredSessions periodically removes expired sessions.
-func (s *AuthPluginState) cleanupExpiredSessions(interval time.Duration, logger *log.Logger) {
+func (s *AuthPluginState) cleanupExpiredSessions(interval time.Duration, l *logger.Logger) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for range ticker.C {
@@ -261,7 +254,7 @@ func (s *AuthPluginState) cleanupExpiredSessions(interval time.Duration, logger 
 		for ip, sess := range s.sessions {
 			if !sess.Expiry.IsZero() && sess.Expiry.Before(time.Now()) {
 				delete(s.sessions, ip)
-				logger.Infof("[AuthPlugin] Session expired removed IP=%s user=%s", ip, sess.Username)
+				l.Infof("[AuthPlugin] Session expired removed IP=%s user=%s", ip, sess.Username)
 			}
 		}
 		s.mu.Unlock()

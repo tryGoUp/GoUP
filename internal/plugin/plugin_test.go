@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"github.com/mirkobrombin/goup/internal/config"
-	log "github.com/sirupsen/logrus"
+	"github.com/mirkobrombin/goup/internal/logger"
 )
 
 type MockPlugin struct{}
 
 func (m *MockPlugin) Name() string  { return "MockPlugin" }
 func (m *MockPlugin) OnInit() error { return nil }
-func (m *MockPlugin) OnInitForSite(conf config.SiteConfig, logger *log.Logger) error {
+func (m *MockPlugin) OnInitForSite(conf config.SiteConfig, l *logger.Logger) error {
 	return nil
 }
 func (m *MockPlugin) BeforeRequest(r *http.Request) {}
@@ -31,11 +31,16 @@ func TestPluginManager(t *testing.T) {
 		t.Fatalf("Failed to initialize plugins globally: %v", err)
 	}
 
+	// Creating a minimal logger in memory for testing
+	log, err := logger.NewLogger("test_site", nil)
+	if err != nil {
+		t.Fatalf("Error creating logger: %v", err)
+	}
+
 	conf := config.SiteConfig{
 		Domain: "example.com",
 	}
-	logger := log.New()
-	if err := pm.InitPluginsForSite(conf, logger); err != nil {
+	if err := pm.InitPluginsForSite(conf, log); err != nil {
 		t.Fatalf("Failed to initialize plugins for site: %v", err)
 	}
 }

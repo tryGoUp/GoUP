@@ -12,8 +12,8 @@ import (
 	"sync"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
-	log "github.com/sirupsen/logrus"
 )
 
 type PythonPluginConfig struct {
@@ -50,7 +50,7 @@ func (p *PythonPlugin) OnInit() error {
 	return nil
 }
 
-func (p *PythonPlugin) OnInitForSite(conf config.SiteConfig, baseLogger *log.Logger) error {
+func (p *PythonPlugin) OnInitForSite(conf config.SiteConfig, baseLogger *logger.Logger) error {
 	if err := p.SetupLoggers(conf, p.Name(), baseLogger); err != nil {
 		return err
 	}

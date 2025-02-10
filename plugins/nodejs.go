@@ -11,19 +11,9 @@ import (
 	"sync"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
-	log "github.com/sirupsen/logrus"
 )
-
-// NodeJSPlugin handles the execution of a Node.js application.
-type NodeJSPlugin struct {
-	plugin.BasePlugin
-
-	mu      sync.Mutex
-	process *os.Process
-
-	siteConfigs map[string]NodeJSPluginConfig
-}
 
 // NodeJSPluginConfig represents the configuration for the NodeJSPlugin.
 type NodeJSPluginConfig struct {
@@ -37,6 +27,16 @@ type NodeJSPluginConfig struct {
 	ProxyPaths     []string `json:"proxy_paths"`
 }
 
+// NodeJSPlugin handles the execution of a Node.js application.
+type NodeJSPlugin struct {
+	plugin.BasePlugin
+
+	mu      sync.Mutex
+	process *os.Process
+
+	siteConfigs map[string]NodeJSPluginConfig
+}
+
 func (p *NodeJSPlugin) Name() string {
 	return "NodeJSPlugin"
 }
@@ -46,51 +46,48 @@ func (p *NodeJSPlugin) OnInit() error {
 	return nil
 }
 
-func (p *NodeJSPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+func (p *NodeJSPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.Logger) error {
 	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
 		return err
 	}
 
-	// Parse NodeJSPluginConfig from the site config.
 	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
-	if ok {
-		cfg := NodeJSPluginConfig{}
-		if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
-			if enable, ok := rawMap["enable"].(bool); ok {
-				cfg.Enable = enable
-			}
-			if port, ok := rawMap["port"].(string); ok {
-				cfg.Port = port
-			}
-			if rootDir, ok := rawMap["root_dir"].(string); ok {
-				cfg.RootDir = rootDir
-			}
-			if entry, ok := rawMap["entry"].(string); ok {
-				cfg.Entry = entry
-			}
-			if installDeps, ok := rawMap["install_deps"].(bool); ok {
-				cfg.InstallDeps = installDeps
-			}
-			if nodePath, ok := rawMap["node_path"].(string); ok {
-				cfg.NodePath = nodePath
-			}
-			if packageManager, ok := rawMap["package_manager"].(string); ok {
-				cfg.PackageManager = packageManager
-			}
-			if proxyPaths, ok := rawMap["proxy_paths"].([]interface{}); ok {
-				for _, pathVal := range proxyPaths {
-					if pathStr, ok := pathVal.(string); ok {
-						cfg.ProxyPaths = append(cfg.ProxyPaths, pathStr)
-					}
+	if !ok {
+		p.siteConfigs[conf.Domain] = NodeJSPluginConfig{}
+		return nil
+	}
+	cfg := NodeJSPluginConfig{}
+	if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
+		if enable, ok := rawMap["enable"].(bool); ok {
+			cfg.Enable = enable
+		}
+		if port, ok := rawMap["port"].(string); ok {
+			cfg.Port = port
+		}
+		if rootDir, ok := rawMap["root_dir"].(string); ok {
+			cfg.RootDir = rootDir
+		}
+		if entry, ok := rawMap["entry"].(string); ok {
+			cfg.Entry = entry
+		}
+		if installDeps, ok := rawMap["install_deps"].(bool); ok {
+			cfg.InstallDeps = installDeps
+		}
+		if nodePath, ok := rawMap["node_path"].(string); ok {
+			cfg.NodePath = nodePath
+		}
+		if packageManager, ok := rawMap["package_manager"].(string); ok {
+			cfg.PackageManager = packageManager
+		}
+		if proxyPaths, ok := rawMap["proxy_paths"].([]interface{}); ok {
+			for _, pathVal := range proxyPaths {
+				if pathStr, ok := pathVal.(string); ok {
+					cfg.ProxyPaths = append(cfg.ProxyPaths, pathStr)
 				}
 			}
 		}
-		p.siteConfigs[conf.Domain] = cfg
-	} else {
-		// If there's no config for this domain, store a default disabled config.
-		p.siteConfigs[conf.Domain] = NodeJSPluginConfig{}
 	}
-
+	p.siteConfigs[conf.Domain] = cfg
 	return nil
 }
 
@@ -176,12 +173,20 @@ func (p *NodeJSPlugin) ensureNodeServerRunning(cfg NodeJSPluginConfig) {
 		err := cmd.Wait()
 		p.PluginLogger.Infof("Node.js server exited (PID=%d), err=%v", p.process.Pid, err)
 		p.PluginLogger.Writer().Close()
+
+		p.mu.Lock()
+		p.process = nil
+		p.mu.Unlock()
 	}()
 }
 
 // proxyToNode forwards the request to Node.js and sends back the response.
 func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, cfg NodeJSPluginConfig) {
 	nodeURL := fmt.Sprintf("http://localhost:%s%s", cfg.Port, r.URL.Path)
+	if r.URL.RawQuery != "" {
+		nodeURL += "?" + r.URL.RawQuery
+	}
+
 	bodyReader, err := io.ReadAll(r.Body)
 	if err != nil {
 		p.PluginLogger.Errorf("Failed to read request body: %v", err)
@@ -220,6 +225,7 @@ func (p *NodeJSPlugin) proxyToNode(w http.ResponseWriter, r *http.Request, cfg N
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		p.PluginLogger.Errorf("Failed to read response from Node.js: %v", err)

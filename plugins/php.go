@@ -7,22 +7,20 @@ import (
 	"strings"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
-	log "github.com/sirupsen/logrus"
 	"github.com/yookoala/gofast"
 )
-
-// PHPPlugin handles the execution of PHP scripts via PHP-FPM.
-type PHPPlugin struct {
-	plugin.BasePlugin
-
-	siteConfigs map[string]PHPPluginConfig
-}
 
 // PHPPluginConfig represents the configuration for the PHPPlugin.
 type PHPPluginConfig struct {
 	Enable  bool   `json:"enable"`
 	FPMAddr string `json:"fpm_addr"`
+}
+
+type PHPPlugin struct {
+	plugin.BasePlugin
+	siteConfigs map[string]PHPPluginConfig
 }
 
 func (p *PHPPlugin) Name() string {
@@ -34,7 +32,7 @@ func (p *PHPPlugin) OnInit() error {
 	return nil
 }
 
-func (p *PHPPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+func (p *PHPPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.Logger) error {
 	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
 		return err
 	}
@@ -87,8 +85,7 @@ func (p *PHPPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
 		phpFPMAddr = "127.0.0.1:9000"
 	}
 
-	rootDir := p.getRootDirectory(r)
-	scriptFilename := filepath.Join(rootDir, r.URL.Path)
+	scriptFilename := filepath.Join(".", r.URL.Path)
 	if _, err := os.Stat(scriptFilename); os.IsNotExist(err) {
 		http.NotFound(w, r)
 		return true
@@ -106,7 +103,7 @@ func (p *PHPPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
 	fcgiHandler := gofast.NewHandler(
 		func(client gofast.Client, req *gofast.Request) (*gofast.ResponsePipe, error) {
 			req.Params["SCRIPT_FILENAME"] = scriptFilename
-			req.Params["DOCUMENT_ROOT"] = rootDir
+			req.Params["DOCUMENT_ROOT"] = "."
 			req.Params["REQUEST_METHOD"] = r.Method
 			req.Params["SERVER_PROTOCOL"] = r.Proto
 			req.Params["REQUEST_URI"] = r.URL.RequestURI()
@@ -122,13 +119,4 @@ func (p *PHPPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (p *PHPPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
-
-func (p *PHPPlugin) OnExit() error {
-	return nil
-}
-
-// getRootDirectory tries to derive the site root from the request.
-// If there's a site-specific approach, do it here; otherwise, fallback.
-func (p *PHPPlugin) getRootDirectory(r *http.Request) string {
-	return "."
-}
+func (p *PHPPlugin) OnExit() error                                       { return nil }

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -15,15 +15,15 @@ import (
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
-	log "github.com/sirupsen/logrus"
 )
 
 // DockerBaseConfig holds configuration for Docker/Podman integration.
 type DockerBaseConfig struct {
 	Enable         bool   `json:"enable"`
-	Mode           string `json:"mode"`         // e.g. "compose" or "standard"
-	ComposeFile    string `json:"compose_file"` // for compose mode
+	Mode           string `json:"mode"`
+	ComposeFile    string `json:"compose_file"`
 	DockerfilePath string `json:"dockerfile_path"`
 	SocketPath     string `json:"socket_path"`
 	CLICommand     string `json:"cli_command"`
@@ -44,10 +44,11 @@ func (d *DockerBasePlugin) OnInit() error {
 	return nil
 }
 
-func (d *DockerBasePlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+func (d *DockerBasePlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.Logger) error {
 	if err := d.SetupLoggers(conf, d.Name(), domainLogger); err != nil {
 		return err
 	}
+
 	var cfg DockerBaseConfig
 	raw, ok := conf.PluginConfigs[d.Name()]
 	if ok {
@@ -103,11 +104,9 @@ func (d *DockerBasePlugin) OnInitForSite(conf config.SiteConfig, domainLogger *l
 	return nil
 }
 
-func (d *DockerBasePlugin) BeforeRequest(r *http.Request) {
-}
+func (d *DockerBasePlugin) BeforeRequest(r *http.Request) {}
 
 func (d *DockerBasePlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
-	// Intercepts requests starting with "/docker/" to list containers.
 	if !strings.HasPrefix(r.URL.Path, "/docker/") {
 		return false
 	}
@@ -121,8 +120,7 @@ func (d *DockerBasePlugin) HandleRequest(w http.ResponseWriter, r *http.Request)
 	return true
 }
 
-func (d *DockerBasePlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {
-}
+func (d *DockerBasePlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
 
 func (d *DockerBasePlugin) OnExit() error {
 	return nil
@@ -163,7 +161,7 @@ func (d *DockerBasePlugin) callDockerAPI(method, path string, body []byte) (stri
 		return "", err
 	}
 	defer resp.Body.Close()
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	return string(data), err
 }
 
@@ -175,9 +173,11 @@ func RunDockerCLI(cliCommand, dockerfilePath string, args ...string) (string, er
 		workDir = "."
 	}
 	cmd.Dir = workDir
+
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stdout
+
 	err := cmd.Run()
 	return stdout.String(), err
 }

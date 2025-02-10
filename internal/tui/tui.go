@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/rivo/tview"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -60,19 +60,20 @@ func Run() {
 }
 
 // UpdateLog updates the TUI log for a given identifier.
-func UpdateLog(identifier string, entry *log.Entry) {
+func UpdateLog(identifier string, fields logger.Fields) {
 	textView, ok := textViews[identifier]
 	if !ok {
 		return
 	}
 
+	domain, _ := fields["domain"].(string)
+	method, _ := fields["method"].(string)
+	urlStr, _ := fields["url"].(string)
+	statusCode, _ := fields["status_code"].(int)
+	durationSec, _ := fields["duration_sec"].(float64)
+
 	logLine := fmt.Sprintf("[%s] %s %s %d (%.4fs)\n",
-		entry.Data["domain"],
-		entry.Data["method"],
-		entry.Data["url"],
-		entry.Data["status_code"],
-		entry.Data["duration"],
-	)
+		domain, method, urlStr, statusCode, durationSec)
 
 	updateQueue <- func() {
 		fmt.Fprint(textView, logLine)

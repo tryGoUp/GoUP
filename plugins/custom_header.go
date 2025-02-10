@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
-	log "github.com/sirupsen/logrus"
 )
 
 // CustomHeaderPlugin adds a custom header to all HTTP responses.
@@ -25,7 +25,7 @@ func (p *CustomHeaderPlugin) OnInit() error {
 	return nil
 }
 
-func (p *CustomHeaderPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+func (p *CustomHeaderPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.Logger) error {
 	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
 		return err
 	}
@@ -56,7 +56,4 @@ func (p *CustomHeaderPlugin) HandleRequest(w http.ResponseWriter, r *http.Reques
 }
 
 func (p *CustomHeaderPlugin) AfterRequest(w http.ResponseWriter, r *http.Request) {}
-
-func (p *CustomHeaderPlugin) OnExit() error {
-	return nil
-}
+func (p *CustomHeaderPlugin) OnExit() error                                       { return nil }

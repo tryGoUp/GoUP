@@ -11,9 +11,9 @@ import (
 	"sync"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
 	"github.com/mirkobrombin/goup/internal/tools"
-	log "github.com/sirupsen/logrus"
 )
 
 // DockerStandardConfig holds configuration for standard Docker deployments.
@@ -51,7 +51,7 @@ func (d *DockerStandardPlugin) OnInit() error {
 	return nil
 }
 
-func (d *DockerStandardPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *log.Logger) error {
+func (d *DockerStandardPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.Logger) error {
 	if err := d.SetupLoggers(conf, d.Name(), domainLogger); err != nil {
 		return err
 	}
@@ -127,16 +127,12 @@ func (d *DockerStandardPlugin) HandleRequest(w http.ResponseWriter, r *http.Requ
 	}
 	// Build target URL using the assigned host port.
 	targetURL := fmt.Sprintf("http://0.0.0.0:%s", state.hostPort)
+
 	if len(state.config.ProxyPaths) == 1 && state.config.ProxyPaths[0] == "/" {
-		d.proxyToContainer(targetURL, w, r)
-		return true
+		return d.proxyToContainer(targetURL, w, r)
 	}
 	for _, prefix := range state.config.ProxyPaths {
 		if strings.HasPrefix(r.URL.Path, prefix) {
-			if r.URL.RawQuery != "" {
-				targetURL += "?" + r.URL.RawQuery
-			}
-			d.DomainLogger.Infof("[DockerStandardPlugin] Proxying request to: %s", targetURL)
 			return d.proxyToContainer(targetURL, w, r)
 		}
 	}
@@ -188,8 +184,7 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 
 	// Check if a container with the expected name already exists.
 	existingContainerID, err := RunDockerCLI(cliCmd, state.config.DockerfilePath, "ps", "-a",
-		"--filter", fmt.Sprintf("name=%s", containerName),
-		"--format", "{{.ID}}")
+		"--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.ID}}")
 	if err == nil && strings.TrimSpace(existingContainerID) != "" {
 		// Container exists; read its assigned port from the container labels.
 		assignedPort, err := RunDockerCLI(cliCmd, state.config.DockerfilePath, "inspect",
@@ -199,7 +194,8 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 		}
 		state.containerID = strings.TrimSpace(existingContainerID)
 		state.hostPort = strings.TrimSpace(assignedPort)
-		d.DomainLogger.Infof("[DockerStandardPlugin] Found existing container for domain=%s with ID=%s and hostPort=%s", domain, state.containerID, state.hostPort)
+		d.DomainLogger.Infof("[DockerStandardPlugin] Found existing container for domain=%s with ID=%s and hostPort=%s",
+			domain, state.containerID, state.hostPort)
 		return nil
 	}
 
@@ -241,6 +237,7 @@ func (d *DockerStandardPlugin) ensureContainer(domain string) error {
 	}
 	runArgs = append(runArgs, state.config.RunArgs...)
 	runArgs = append(runArgs, state.config.ImageName)
+
 	d.PluginLogger.Infof("[DockerStandardPlugin] Running container with command: %s %s", cliCmd, strings.Join(runArgs, " "))
 	runOutput, err := RunDockerCLI(cliCmd, state.config.DockerfilePath, runArgs...)
 	if err != nil {
