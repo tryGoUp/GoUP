@@ -6,6 +6,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
@@ -20,15 +21,16 @@ func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string
 
 	if conf.ProxyPass != "" {
 		// Set up reverse proxy handler if ProxyPass is set.
-		proxyURL, err := url.Parse(conf.ProxyPass)
+		proxy, err := getSharedReverseProxy(conf.ProxyPass)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proxy URL: %v", err)
 		}
-		proxy := httputil.NewSingleHostReverseProxy(proxyURL)
+
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			addCustomHeaders(w, conf.CustomHeaders)
 			proxy.ServeHTTP(w, r)
 		})
+
 	} else {
 		// Serve static files from the root directory.
 		fs := http.FileServer(http.Dir(conf.RootDirectory))
@@ -52,7 +54,7 @@ func createHandler(conf config.SiteConfig, logger *log.Logger, identifier string
 	if reqTimeout == 0 {
 		reqTimeout = 60 // Default to 60 seconds
 	}
-	timeout := time.Duration(conf.RequestTimeout) * time.Second
+	timeout := time.Duration(reqTimeout) * time.Second
 	siteMwManager.Use(middleware.TimeoutMiddleware(timeout))
 
 	// Add logging middleware last to ensure it wraps the entire request
@@ -70,11 +72,60 @@ func addCustomHeaders(w http.ResponseWriter, headers map[string]string) {
 		w.Header().Set(key, value)
 	}
 
-	// Expose custom headers to the client.
-	exposeHeaders := []string{}
+	exposeHeaders := make([]string, 0, len(headers))
 	for key := range headers {
 		exposeHeaders = append(exposeHeaders, key)
 	}
 
 	w.Header().Set("Access-Control-Expose-Headers", strings.Join(exposeHeaders, ", "))
+}
+
+var (
+	sharedProxyMap   = make(map[string]*httputil.ReverseProxy)
+	sharedProxyMapMu sync.Mutex
+	defaultTransport = &http.Transport{}
+
+	globalBytePool = &byteSlicePool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 32*1024)
+			},
+		},
+	}
+)
+
+type byteSlicePool struct {
+	pool sync.Pool
+}
+
+func (b *byteSlicePool) Get() []byte {
+	return b.pool.Get().([]byte)
+}
+
+func (b *byteSlicePool) Put(buf []byte) {
+	if cap(buf) == 32*1024 {
+		b.pool.Put(buf[:32*1024])
+	}
+}
+
+// getSharedReverseProxy returns a shared ReverseProxy for the given backend URL.
+func getSharedReverseProxy(rawURL string) (*httputil.ReverseProxy, error) {
+	sharedProxyMapMu.Lock()
+	defer sharedProxyMapMu.Unlock()
+
+	if rp, ok := sharedProxyMap[rawURL]; ok {
+		return rp, nil
+	}
+
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	rp := httputil.NewSingleHostReverseProxy(parsedURL)
+	rp.Transport = defaultTransport
+	rp.BufferPool = globalBytePool
+
+	sharedProxyMap[rawURL] = rp
+	return rp, nil
 }
