@@ -80,11 +80,9 @@ func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.
 	}
 
 	if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
-		// ProtectedPaths
-		if en, ok := rawMap["enable"].(bool); ok {
-			authConfig.Enable = en
-		}
+		authConfig.Enable = p.IsEnabled(rawMap)
 
+		// ProtectedPaths
 		if paths, ok := rawMap["protected_paths"].([]interface{}); ok {
 			for _, path := range paths {
 				if pStr, ok := path.(string); ok {

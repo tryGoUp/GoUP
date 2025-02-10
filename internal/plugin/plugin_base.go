@@ -29,3 +29,18 @@ func (bp *BasePlugin) SetupLoggers(conf config.SiteConfig, pluginName string, do
 
 	return nil
 }
+
+// IsEnabled returns true if the plugin is enabled for the given site.
+func (bp *BasePlugin) IsEnabled(conf interface{}) bool {
+	if conf == nil {
+		return false
+	}
+
+	// We assume that the plugin config has an "Enable" field.
+	enabled, ok := conf.(map[string]interface{})["enable"].(bool)
+	if !ok {
+		return false
+	}
+
+	return enabled
+}

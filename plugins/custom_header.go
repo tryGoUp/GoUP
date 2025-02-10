@@ -29,6 +29,12 @@ func (p *CustomHeaderPlugin) OnInitForSite(conf config.SiteConfig, domainLogger 
 	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
 		return err
 	}
+
+	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
+	if !ok || !p.IsEnabled(pluginConfigRaw) {
+		return nil
+	}
+
 	p.siteConfigs[conf.Domain] = conf
 	return nil
 }

@@ -31,9 +31,8 @@ type NodeJSPluginConfig struct {
 type NodeJSPlugin struct {
 	plugin.BasePlugin
 
-	mu      sync.Mutex
-	process *os.Process
-
+	mu          sync.Mutex
+	process     *os.Process
 	siteConfigs map[string]NodeJSPluginConfig
 }
 
@@ -58,9 +57,8 @@ func (p *NodeJSPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logge
 	}
 	cfg := NodeJSPluginConfig{}
 	if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
-		if enable, ok := rawMap["enable"].(bool); ok {
-			cfg.Enable = enable
-		}
+		// Use BasePlugin's IsEnabled method to determine if the plugin is enabled.
+		cfg.Enable = p.IsEnabled(rawMap)
 		if port, ok := rawMap["port"].(string); ok {
 			cfg.Port = port
 		}

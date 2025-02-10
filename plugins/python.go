@@ -63,9 +63,8 @@ func (p *PythonPlugin) OnInitForSite(conf config.SiteConfig, baseLogger *logger.
 
 	cfg := PythonPluginConfig{}
 	if rawMap, ok := raw.(map[string]interface{}); ok {
-		if v, ok := rawMap["enable"].(bool); ok {
-			cfg.Enable = v
-		}
+		// Use BasePlugin's IsEnabled method to determine if the plugin is enabled.
+		cfg.Enable = p.IsEnabled(rawMap)
 		if v, ok := rawMap["port"].(string); ok {
 			cfg.Port = v
 		}

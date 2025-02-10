@@ -59,9 +59,7 @@ func (d *DockerStandardPlugin) OnInitForSite(conf config.SiteConfig, domainLogge
 	raw, ok := conf.PluginConfigs[d.Name()]
 	if ok {
 		if rawMap, ok := raw.(map[string]interface{}); ok {
-			if v, ok := rawMap["enable"].(bool); ok {
-				cfg.Enable = v
-			}
+			cfg.Enable = d.IsEnabled(rawMap)
 			if v, ok := rawMap["dockerfile_path"].(string); ok {
 				cfg.DockerfilePath = v
 			}
