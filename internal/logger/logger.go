@@ -5,11 +5,33 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/muesli/termenv"
 	"github.com/rs/zerolog"
 )
+
+var loggerBytePool = &byteSlicePool{
+	pool: sync.Pool{
+		New: func() interface{} {
+			return make([]byte, 8*1024)
+		},
+	},
+}
+
+type byteSlicePool struct {
+	pool sync.Pool
+}
+
+func (b *byteSlicePool) Get() []byte {
+	return b.pool.Get().([]byte)
+}
+
+func (b *byteSlicePool) Put(buf []byte) {
+	b.pool.Put(buf)
+}
 
 // Fields is a map of string keys to arbitrary values, emulating logrus.Fields
 // for compatibility with existing code.
@@ -36,6 +58,29 @@ func (l *Logger) WithFields(fields Fields) *Logger {
 	}
 }
 
+// ColoredConsoleWriter wraps an io.Writer to print colored logs.
+func ColoredConsoleWriter(out io.Writer) zerolog.ConsoleWriter {
+	return zerolog.ConsoleWriter{
+		Out:        out,
+		TimeFormat: "15:04:05",
+		FormatLevel: func(i interface{}) string {
+			level := i.(string)
+			switch level {
+			case "info":
+				return termenv.String("INFO").Foreground(termenv.ANSICyan).String()
+			case "warn":
+				return termenv.String("WARN").Foreground(termenv.ANSIYellow).String()
+			case "error":
+				return termenv.String("ERROR").Foreground(termenv.ANSIRed).String()
+			case "debug":
+				return termenv.String("DEBUG").Foreground(termenv.ANSIWhite).String()
+			default:
+				return level
+			}
+		},
+	}
+}
+
 // Info logs a message at Info level.
 func (l *Logger) Info(msg string) {
 	l.base.Info().Msg(msg)
@@ -56,7 +101,7 @@ func (l *Logger) Errorf(format string, args ...interface{}) {
 	l.base.Error().Msgf(format, args...)
 }
 
-// Debug logs a message at Debug level (not heavily used by default).
+// Debug logs a message at Debug level.
 func (l *Logger) Debug(msg string) {
 	l.base.Debug().Msg(msg)
 }
@@ -76,7 +121,8 @@ func (l *Logger) Warnf(format string, args ...interface{}) {
 	l.base.Warn().Msgf(format, args...)
 }
 
-// NewLogger creates a new Logger that writes both to stdout and a site-specific file.
+// NewLogger creates a new Logger that writes JSON to files and colored
+// logs to stdout.
 func NewLogger(identifier string, fields Fields) (*Logger, error) {
 	logDir := filepath.Join(
 		config.GetLogDir(),
@@ -95,14 +141,13 @@ func NewLogger(identifier string, fields Fields) (*Logger, error) {
 		return nil, err
 	}
 
-	mw := io.MultiWriter(os.Stdout, file)
+	multiWriter := io.MultiWriter(file, ColoredConsoleWriter(os.Stdout))
 
-	// Zerolog logger with time + multiwriter
-	base := zerolog.New(mw).With().Timestamp().Logger()
+	base := zerolog.New(multiWriter).With().Timestamp().Logger()
 
 	l := &Logger{
 		base: base,
-		out:  mw,
+		out:  multiWriter,
 	}
 
 	if fields != nil {
@@ -112,7 +157,7 @@ func NewLogger(identifier string, fields Fields) (*Logger, error) {
 	return l, nil
 }
 
-// NewPluginLogger creates a plugin-specific log file (no stdout).
+// NewPluginLogger creates a plugin-specific log file (JSON format, no stdout).
 func NewPluginLogger(siteDomain, pluginName string) (*Logger, error) {
 	logDir := filepath.Join(
 		config.GetLogDir(),
@@ -147,7 +192,9 @@ func (l *Logger) Writer() io.WriteCloser {
 
 	go func() {
 		defer pr.Close()
-		buf := make([]byte, 1024)
+		buf := loggerBytePool.Get()
+		defer loggerBytePool.Put(buf)
+
 		var tmp []byte
 
 		for {
@@ -176,9 +223,7 @@ func (l *Logger) Writer() io.WriteCloser {
 		}
 	}()
 
-	return &pipeWriteCloser{
-		pipeWriter: pw,
-	}
+	return &pipeWriteCloser{pipeWriter: pw}
 }
 
 // pipeWriteCloser implements Write and Close delegating to a PipeWriter.

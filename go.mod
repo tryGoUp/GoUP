@@ -4,10 +4,10 @@ go 1.22
 
 require (
 	github.com/armon/go-radix v1.0.0
+	github.com/muesli/termenv v0.15.2
 	github.com/quic-go/quic-go v0.48.2
 	github.com/rivo/tview v0.0.0-20241103174730-c76f7879f592
 	github.com/rs/zerolog v1.33.0
-	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.1
 	github.com/valyala/fasthttp v1.58.0
 	github.com/yookoala/gofast v0.8.0
@@ -15,6 +15,7 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
 	github.com/gdamore/tcell/v2 v2.7.1 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
