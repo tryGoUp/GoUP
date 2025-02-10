@@ -13,16 +13,10 @@ import (
 	"github.com/mirkobrombin/goup/internal/plugin"
 )
 
-// AuthPlugin provides HTTP Basic Authentication for protected paths.
-type AuthPlugin struct {
-	plugin.BasePlugin
-
-	conf  AuthPluginConfig
-	state *AuthPluginState
-}
-
 // AuthPluginConfig represents the configuration for the AuthPlugin.
 type AuthPluginConfig struct {
+	// Whather the plugin is enabled.
+	Enable bool `json:"enable"`
 	// URL paths to protect with authentication.
 	ProtectedPaths []string `json:"protected_paths"`
 	// username:password pairs for authentication.
@@ -32,6 +26,7 @@ type AuthPluginConfig struct {
 	SessionExpiration int `json:"session_expiration"`
 }
 
+// session and AuthPluginState remain per domain.
 type session struct {
 	Username string
 	Expiry   time.Time
@@ -41,6 +36,15 @@ type session struct {
 type AuthPluginState struct {
 	sessions map[string]session
 	mu       sync.RWMutex
+}
+
+// AuthPlugin provides HTTP Basic Authentication for protected paths.
+// Instead of storing one global conf/state, we now store a map of domain->config
+// and a map of domain->plugin state, so each site has its own settings.
+type AuthPlugin struct {
+	plugin.BasePlugin
+	siteConfigs map[string]AuthPluginConfig
+	states      map[string]*AuthPluginState
 }
 
 func (p *AuthPlugin) Name() string {
@@ -55,17 +59,32 @@ func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.
 	if err := p.SetupLoggers(conf, p.Name(), domainLogger); err != nil {
 		return err
 	}
-	p.state = &AuthPluginState{sessions: make(map[string]session)}
+
+	// Initialize maps once
+	if p.siteConfigs == nil {
+		p.siteConfigs = make(map[string]AuthPluginConfig)
+	}
+	if p.states == nil {
+		p.states = make(map[string]*AuthPluginState)
+	}
 
 	pluginConfigRaw, ok := conf.PluginConfigs[p.Name()]
 	if !ok {
+		// Default to disabled if plugin config is not present
+		p.siteConfigs[conf.Domain] = AuthPluginConfig{Enable: false}
 		return nil
 	}
 
-	// Parse plugin configuration.
-	authConfig := AuthPluginConfig{}
+	authConfig := AuthPluginConfig{
+		Enable: false,
+	}
+
 	if rawMap, ok := pluginConfigRaw.(map[string]interface{}); ok {
 		// ProtectedPaths
+		if en, ok := rawMap["enable"].(bool); ok {
+			authConfig.Enable = en
+		}
+
 		if paths, ok := rawMap["protected_paths"].([]interface{}); ok {
 			for _, path := range paths {
 				if pStr, ok := path.(string); ok {
@@ -98,15 +117,23 @@ func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.
 		return errors.New("session_expiration cannot be less than -1")
 	}
 
-	p.conf = authConfig
+	p.siteConfigs[conf.Domain] = authConfig
 
-	// Initialization of the plugin state with optional session cleanup.
-	if p.conf.SessionExpiration != -1 {
-		go p.state.cleanupExpiredSessions(time.Minute, p.DomainLogger)
+	if !authConfig.Enable {
+		return nil
+	}
+
+	// Initialize a new AuthPluginState for this domain
+	p.states[conf.Domain] = &AuthPluginState{
+		sessions: make(map[string]session),
+	}
+
+	if authConfig.SessionExpiration != -1 {
+		go p.states[conf.Domain].cleanupExpiredSessions(time.Minute, p.DomainLogger)
 	}
 
 	p.DomainLogger.Infof("[AuthPlugin] Initialized for domain=%s with session_expiration=%d",
-		conf.Domain, p.conf.SessionExpiration)
+		conf.Domain, authConfig.SessionExpiration)
 
 	return nil
 }
@@ -114,12 +141,24 @@ func (p *AuthPlugin) OnInitForSite(conf config.SiteConfig, domainLogger *logger.
 func (p *AuthPlugin) BeforeRequest(r *http.Request) {}
 
 func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool {
-	if p.conf.Credentials == nil {
+	// Determine the domain (host without port) to select the correct config/state
+	host := r.Host
+	if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
+		host = host[:colonIndex]
+	}
+
+	// If we have no config for this domain, do nothing
+	conf, ok := p.siteConfigs[host]
+	if !ok || !conf.Enable {
+		return false
+	}
+
+	if conf.Credentials == nil {
 		return false
 	}
 
 	protected := false
-	for _, path := range p.conf.ProtectedPaths {
+	for _, path := range conf.ProtectedPaths {
 		if strings.HasPrefix(r.URL.Path, path) {
 			protected = true
 			break
@@ -130,9 +169,13 @@ func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool 
 		return false
 	}
 
-	// The path is protected, check session or credentials.
+	st, hasState := p.states[host]
+	if !hasState {
+		return false
+	}
+
 	ip := getClientIP(r)
-	if sess, exists := p.state.getSession(ip); exists {
+	if sess, exists := st.getSession(ip); exists {
 		p.DomainLogger.Infof("[AuthPlugin] Valid session for IP=%s user=%s", ip, sess.Username)
 		return false
 	}
@@ -151,15 +194,13 @@ func (p *AuthPlugin) HandleRequest(w http.ResponseWriter, r *http.Request) bool 
 		return true
 	}
 
-	// Validate credentials
-	expectedPassword, userExists := p.conf.Credentials[username]
+	expectedPassword, userExists := conf.Credentials[username]
 	if !userExists || expectedPassword != password {
 		unauthorized(w)
 		return true
 	}
 
-	// Create a new session
-	p.state.createSession(ip, username, p.conf.SessionExpiration, p.PluginLogger)
+	st.createSession(ip, username, conf.SessionExpiration, p.PluginLogger)
 	p.PluginLogger.Infof("[AuthPlugin] Authenticated IP=%s user=%s", ip, username)
 
 	return false
