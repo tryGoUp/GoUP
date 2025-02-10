@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // customLogDir is used to override the default log directory, e.g. for testing.
@@ -87,19 +88,30 @@ func LoadAllConfigs() ([]SiteConfig, error) {
 	}
 
 	var configs []SiteConfig
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
 	for _, file := range files {
 		if filepath.Ext(file.Name()) == ".json" {
-			conf, err := LoadConfig(filepath.Join(configDir, file.Name()))
-			if err != nil {
-				fmt.Printf("Error loading config %s: %v\n", file.Name(), err)
-				continue
-			}
-			configs = append(configs, conf)
+			wg.Add(1)
+			go func(fname string) {
+				defer wg.Done()
 
-			// Populate the global SiteConfigs map
-			SiteConfigs[conf.Domain] = conf
+				conf, err := LoadConfig(filepath.Join(configDir, fname))
+				if err != nil {
+					fmt.Printf("Error loading config %s: %v\n", fname, err)
+					return
+				}
+
+				mu.Lock()
+				configs = append(configs, conf)
+				SiteConfigs[conf.Domain] = conf
+				mu.Unlock()
+			}(file.Name())
 		}
 	}
+
+	wg.Wait()
 	return configs, nil
 }
 
