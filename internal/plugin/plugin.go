@@ -77,6 +77,10 @@ func (pm *PluginManager) InitPlugins() error {
 	defer pm.mu.Unlock()
 
 	for _, plugin := range pm.plugins {
+		if !isPluginEnabled(plugin.Name()) {
+			fmt.Printf("Plugin %s is disabled\n", plugin.Name())
+			continue
+		}
 		if err := plugin.OnInit(); err != nil {
 			return err
 		}
@@ -90,6 +94,9 @@ func (pm *PluginManager) InitPluginsForSite(conf config.SiteConfig, l *logger.Lo
 	defer pm.mu.Unlock()
 
 	for _, plugin := range pm.plugins {
+		if !isPluginEnabled(plugin.Name()) {
+			continue
+		}
 		if err := plugin.OnInitForSite(conf, l); err != nil {
 			return err
 		}
@@ -107,6 +114,18 @@ func (pm *PluginManager) GetRegisteredPlugins() []string {
 		names[i] = plugin.Name()
 	}
 	return names
+}
+
+func isPluginEnabled(name string) bool {
+	if config.GlobalConf == nil || len(config.GlobalConf.EnabledPlugins) == 0 {
+		return true
+	}
+	for _, pName := range config.GlobalConf.EnabledPlugins {
+		if pName == name {
+			return true
+		}
+	}
+	return false
 }
 
 // PluginMiddleware applies the plugin hooks around each HTTP request.
