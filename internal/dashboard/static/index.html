@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>GoUp! Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+    <script src="https://unpkg.com/navigo"></script>
+    <script src="https://cdn.jsdelivr.net/npm/handlebars@latest/dist/handlebars.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="/entry.js"></script>
+</head>
+
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+    <header class="bg-white shadow-sm">
+        <div class="max-w-screen-xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <img src="https://raw.githubusercontent.com/tryGoUp/brand/refs/heads/main/Icon/Light/logo-light.svg"
+                    alt="GoUp!" class="w-8 h-8" />
+                <h1 class="text-xl font-bold text-gray-700">Dashboard</h1>
+            </div>
+
+            <div class="relative flex-1 mx-8">
+                <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"> search
+                </span>
+                <input id="globalSearch" type="text" placeholder="Search anything..."
+                    class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            </div>
+
+            <nav class="flex items-center space-x-4">
+                <a href="/" data-navigo class="text-gray-600 hover:text-cyan-600">Home</a>
+                <a href="/metrics" data-navigo class="text-gray-600 hover:text-cyan-600">Metrics</a>
+                <a href="/plugins" data-navigo class="text-gray-600 hover:text-cyan-600">Plugins</a>
+                <a href="/sites" data-navigo class="text-gray-600 hover:text-cyan-600">Sites</a>
+                <a href="/config" data-navigo class="text-gray-600 hover:text-cyan-600">Config</a>
+                <a href="/tools" data-navigo class="text-gray-600 hover:text-cyan-600">Tools</a>
+            </nav>
+        </div>
+    </header>
+
+    <main id="app" class="max-w-screen-xl mx-auto px-4 py-6"></main>
+</body>
+
+</html>

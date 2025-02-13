@@ -9,6 +9,7 @@ import (
 // GlobalConfig contains the global settings for GoUP.
 type GlobalConfig struct {
 	EnableAPI      bool     `json:"enable_api"`
+	APIPort        int      `json:"api_port"`
 	DashboardPort  int      `json:"dashboard_port"`
 	EnabledPlugins []string `json:"enabled_plugins"` // empty means all enabled
 }
@@ -22,9 +23,9 @@ func LoadGlobalConfig() error {
 	configDir := GetConfigDir()
 	configFile := filepath.Join(configDir, globalConfName)
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
-		// Valori di default
 		GlobalConf = &GlobalConfig{
 			EnableAPI:      true,
+			APIPort:        6007,
 			DashboardPort:  6008,
 			EnabledPlugins: []string{},
 		}

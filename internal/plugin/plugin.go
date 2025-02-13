@@ -33,6 +33,7 @@ type Plugin interface {
 type PluginManager struct {
 	mu      sync.Mutex
 	plugins []Plugin
+	active  map[string]bool
 }
 
 var (
@@ -48,6 +49,7 @@ var (
 func NewPluginManager() *PluginManager {
 	return &PluginManager{
 		plugins: []Plugin{},
+		active:  make(map[string]bool),
 	}
 }
 
@@ -69,6 +71,7 @@ func (pm *PluginManager) Register(p Plugin) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.plugins = append(pm.plugins, p)
+	pm.active[p.Name()] = isPluginEnabled(p.Name())
 }
 
 // InitPlugins calls OnInit on all registered plugins.

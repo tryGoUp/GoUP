@@ -1,0 +1,28 @@
+<div class="bg-white p-6 rounded-xl shadow space-y-4">
+    <h2 class="text-2xl font-bold text-gray-700">Plugins</h2>
+    <p class="text-sm text-gray-500 mb-4">Switch the plugins below. Searching filters by name.</p>
+
+    <ul class="divide-y divide-gray-200">
+        {{#each plugins}}
+        <li
+            class="px-4 flex items-center justify-between py-3 hover:bg-gray-50 transition-colors duration-200 ease-in-out rounded-lg">
+            <div>
+                <p class="font-medium text-gray-700">{{this.name}}</p>
+                <p class="text-sm text-gray-400">
+                    {{#if this.enabled}}Enabled{{else}}Disabled{{/if}}
+                </p>
+            </div>
+            <label class="inline-flex relative items-center cursor-pointer">
+                <input type="checkbox" class="toggle-plugin sr-only peer" data-plugin="{{this.name}}" {{#if
+                    this.enabled}}checked{{/if}}>
+                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full 
+                   peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white 
+                   after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 
+                   after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 
+                   peer-checked:bg-cyan-600">
+                </div>
+            </label>
+        </li>
+        {{/each}}
+    </ul>
+</div>

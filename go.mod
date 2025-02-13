@@ -4,6 +4,7 @@ go 1.22
 
 require (
 	github.com/armon/go-radix v1.0.0
+	github.com/gorilla/mux v1.8.1
 	github.com/muesli/termenv v0.15.2
 	github.com/quic-go/quic-go v0.48.2
 	github.com/rivo/tview v0.0.0-20241103174730-c76f7879f592

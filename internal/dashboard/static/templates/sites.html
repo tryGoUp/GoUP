@@ -1,0 +1,26 @@
+<div class="bg-white p-6 rounded-xl shadow space-y-4">
+    <h2 class="text-2xl font-bold text-gray-700">Sites</h2>
+    <p class="text-sm text-gray-500 mb-4">Filtered by domain name if you type in the global search.</p>
+
+    <ul class="divide-y divide-gray-200">
+        {{#each sites}}
+        <li
+            class="px-4 flex items-center justify-between py-3 hover:bg-gray-50 transition-colors duration-200 ease-in-out rounded-lg">
+            <div>
+                <p class="font-medium text-gray-700">{{this.domain}}</p>
+                <p class="text-sm text-gray-400">Port: {{this.port}}</p>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button class="view-json text-blue-600 hover:text-blue-500 text-sm font-medium"
+                    data-domain="{{this.domain}}">
+                    <span class="material-symbols-outlined"> data_object </span>
+                </button>
+                <button class="delete-site text-red-500 hover:text-red-400 text-sm font-medium"
+                    data-domain="{{this.domain}}">
+                    <span class="material-symbols-outlined"> delete </span>
+                </button>
+            </div>
+        </li>
+        {{/each}}
+    </ul>
+</div>

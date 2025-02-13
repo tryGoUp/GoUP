@@ -33,7 +33,7 @@ type SiteConfig struct {
 	SSL            SSLConfig         `json:"ssl"`
 	RequestTimeout int               `json:"request_timeout"` // in seconds
 
-	PluginConfigs map[string]interface{} `json:"plugin_configs"` // Plugin-specific configurations
+	PluginConfigs map[string]interface{} `json:"plugin_configs"`
 }
 
 // GetConfigDir returns the directory where configuration files are stored.
@@ -75,6 +75,9 @@ func LoadConfig(filePath string) (SiteConfig, error) {
 	}
 	if err := json.Unmarshal(data, &conf); err != nil {
 		return conf, err
+	}
+	if conf.PluginConfigs == nil {
+		conf.PluginConfigs = make(map[string]interface{})
 	}
 	return conf, nil
 }

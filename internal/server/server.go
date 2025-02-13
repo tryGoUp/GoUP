@@ -8,9 +8,12 @@ import (
 	"sync"
 
 	"github.com/armon/go-radix"
+	"github.com/mirkobrombin/goup/internal/api"
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/mirkobrombin/goup/internal/dashboard"
 	"github.com/mirkobrombin/goup/internal/logger"
 	"github.com/mirkobrombin/goup/internal/plugin"
+	"github.com/mirkobrombin/goup/internal/restart"
 	"github.com/mirkobrombin/goup/internal/server/middleware"
 	"github.com/mirkobrombin/goup/internal/tools"
 	"github.com/mirkobrombin/goup/internal/tui"
@@ -32,6 +35,12 @@ func StartServers(configs []config.SiteConfig, enableTUI bool, enableBench bool)
 	if tuiMode {
 		tui.InitTUI()
 	}
+
+	// Start API Server if enabled
+	api.StartAPIServer()
+
+	// Start Dashboard Server if enabled
+	dashboard.StartDashboardServer()
 
 	// Groupping configurations by port to minimize the number of servers
 	// NOTE: configurations with the same port are treated as virtual hosts
@@ -152,6 +161,7 @@ func startSingleServer(conf config.SiteConfig, mwManager *middleware.MiddlewareM
 	// fasthttp does not support QUIC (yet?).
 	if conf.SSL.Enabled {
 		server := createHTTPServer(conf, handler)
+		restart.SetServer(server)
 		startServerInstance(server, conf, lg)
 	} else {
 		startFasthttpServer(conf, handler, lg)
@@ -257,7 +267,6 @@ func startVirtualHostServer(port int, configs []config.SiteConfig, mwManager *mi
 			WriteTimeout: tools.TimeDurationOrDefault(serverConf.RequestTimeout),
 		}
 
-		lg.Infof("Serving on HTTP port %d with fasthttp", port)
 		err := server.ListenAndServe(fmt.Sprintf(":%d", port))
 		if err != nil {
 			lg.Errorf("Fasthttp server error on port %d: %v", port, err)
@@ -275,7 +284,6 @@ func startFasthttpServer(conf config.SiteConfig, nethttpHandler http.Handler, lg
 		WriteTimeout: tools.TimeDurationOrDefault(conf.RequestTimeout),
 	}
 
-	lg.Infof("Serving on HTTP port %d with fasthttp", conf.Port)
 	err := server.ListenAndServe(fmt.Sprintf(":%d", conf.Port))
 	if err != nil {
 		lg.Errorf("Fasthttp server error on port %d: %v", conf.Port, err)

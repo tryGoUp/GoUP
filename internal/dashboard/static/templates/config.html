@@ -1,0 +1,17 @@
+<div class="bg-white p-6 rounded-xl shadow space-y-4">
+    <h2 class="text-2xl font-bold text-gray-700">Global Config</h2>
+    <p class="text-sm text-gray-500">Edit the global configuration of GoUp!.</p>
+
+    <div>
+        <label for="apiPort" class="block text-sm font-medium text-gray-600 mb-1">API Port</label>
+        <input id="apiPort" type="number" value="{{api_port}}" class="border rounded w-full p-2 mb-4" />
+    </div>
+    <div>
+        <label for="dashboardPort" class="block text-sm font-medium text-gray-600 mb-1">Dashboard Port</label>
+        <input id="dashboardPort" type="number" value="{{dashboard_port}}" class="border rounded w-full p-2 mb-4" />
+    </div>
+
+    <button id="saveConfigButton" class="bg-cyan-600 text-white px-6 py-2 rounded hover:bg-cyan-500">
+        Save changes
+    </button>
+</div>
