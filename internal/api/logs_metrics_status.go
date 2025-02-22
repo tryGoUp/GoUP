@@ -4,33 +4,52 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"path/filepath"
+	"sync/atomic"
+	"time"
 
 	"github.com/mirkobrombin/goup/internal/config"
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/mem"
 )
 
+var startTime = time.Now()
+var requestsTotal uint64
+
 func getLogsHandler(w http.ResponseWriter, r *http.Request) {
-	logFile := os.Getenv("GOUP_LOG_FILE")
-	if logFile == "" {
-		http.Error(w, "Log file not set", http.StatusNotFound)
-		return
-	}
-	data, err := ioutil.ReadFile(logFile)
+	logDir := config.GetLogDir()
+	var logs []byte
+	err := filepath.Walk(logDir, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			data, readErr := ioutil.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			logs = append(logs, data...)
+			logs = append(logs, '\n')
+		}
+		return nil
+	})
 	if err != nil {
 		http.Error(w, "Unable to read log file", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write(data)
+	w.Write(logs)
 }
 
 func getMetricsHandler(w http.ResponseWriter, r *http.Request) {
+	atomic.AddUint64(&requestsTotal, 1)
+	cpuPercent, _ := cpu.Percent(0, false)
+	vm, _ := mem.VirtualMemory()
 	metrics := map[string]interface{}{
-		"requests_total": 1234,
-		"latency_avg_ms": 45.6,
-		"cpu_usage":      23.4,
-		"ram_usage_mb":   512,
+		"requests_total": atomic.LoadUint64(&requestsTotal),
+		"latency_avg_ms": 0,
+		"cpu_usage":      cpuPercent,
+		"ram_usage_mb":   vm.Used / 1024 / 1024,
 		"active_sites":   len(config.SiteConfigs),
 		"active_plugins": len(config.GlobalConf.EnabledPlugins),
 	}
@@ -39,7 +58,7 @@ func getMetricsHandler(w http.ResponseWriter, r *http.Request) {
 
 func getStatusHandler(w http.ResponseWriter, r *http.Request) {
 	status := map[string]interface{}{
-		"uptime":   "72h",
+		"uptime":   time.Since(startTime).String(),
 		"sites":    len(config.SiteConfigs),
 		"plugins":  config.GlobalConf.EnabledPlugins,
 		"apiAlive": true,

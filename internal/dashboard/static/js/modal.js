@@ -10,11 +10,13 @@ export default {
         "fixed bottom-0 left-0 w-full bg-white shadow-xl rounded-t-xl transform translate-y-full transition-transform duration-300 z-50";
       modal.innerHTML = `
           <div class="cursor-pointer w-full bg-gray-300 h-1.5 rounded-full mt-2 mx-auto max-w-16"></div>
-          <div class="p-4 flex items-center justify-between border-b">
-            <h2 class="text-lg font-semibold" id="${id}-title">${title}</h2>
-            <div id="${id}-buttons" class="space-x-2"></div>
+          <div class="mx-auto p-4 border-b">
+            <div class="max-w-7xl mx-auto flex items-center justify-between">
+              <h2 class="text-lg font-semibold" id="${id}-title">${title}</h2>
+              <div id="${id}-buttons" class="space-x-2"></div>
+            </div>
           </div>
-          <div class="p-4 overflow-auto max-h-[60vh]" id="${id}-content">
+          <div class="max-w-7xl mx-auto p-4 overflow-auto max-h-[60vh]" id="${id}-content">
             ${content}
           </div>
         `;
@@ -88,7 +90,6 @@ export default {
       if (!isDragging) return;
       let diff = e.clientY - startY;
       let newTransform = Math.min(Math.max(initialTransform + diff, 0), 100);
-
       modal.style.transform = `translateY(${newTransform}%)`;
       currentTransform = newTransform;
     });
@@ -97,7 +98,6 @@ export default {
       if (!isDragging) return;
       isDragging = false;
       modal.style.transition = "transform 0.3s ease";
-
       if (currentTransform > 70) {
         modal.style.transform = "translateY(100%)";
         setTimeout(() => modal.remove(), 300);

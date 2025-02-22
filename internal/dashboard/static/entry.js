@@ -5,6 +5,7 @@ import Plugins from "./js/plugins.js";
 import Sites from "./js/sites.js";
 import Tools from "./js/tools.js";
 import Search from "./js/search.js";
+import Logs from "./js/logs.js";
 
 const router = new Navigo("/", { hash: false });
 
@@ -21,6 +22,7 @@ router
     "/sites": () => render(Sites),
     "/config": () => render(Config),
     "/tools": () => render(Tools),
+    "/logs": () => render(Logs),
   })
   .resolve();
 

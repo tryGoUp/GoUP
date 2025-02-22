@@ -1,0 +1,24 @@
+<div class="bg-white p-6 rounded-xl shadow space-y-4">
+    <h2 class="text-2xl font-bold text-gray-700">Logs Explorer</h2>
+    <p class="text-sm text-gray-500">View logs with date range or plugin filters.</p>
+
+    <div class="space-y-2 mb-4">
+        <label class="block">Start Date (YYYY-MM-DD)</label>
+        <input id="startDate" type="text" class="border p-2 rounded w-full" placeholder="2025-01-01">
+
+        <label class="block">End Date (YYYY-MM-DD)</label>
+        <input id="endDate" type="text" class="border p-2 rounded w-full" placeholder="2025-12-31">
+
+        <label class="block">Plugin Name</label>
+        <input id="pluginFilter" type="text" class="border p-2 rounded w-full" placeholder="plugin1">
+    </div>
+
+    <button id="fetchLogsBtn" class="bg-cyan-600 text-white px-6 py-2 rounded hover:bg-cyan-500">Fetch Logs</button>
+
+    <ul class="divide-y divide-gray-200 mt-4" id="logsList"></ul>
+</div>
+
+<div id="logContentModal"
+    class="hidden fixed top-0 left-0 w-full h-full bg-black bg-opacity-60 z-50 flex items-center justify-center">
+    <div class="bg-white w-3/4 h-3/4 rounded p-4 overflow-auto" id="logContentBox"></div>
+</div>

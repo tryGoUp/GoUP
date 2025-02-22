@@ -30,6 +30,10 @@ func SetupRoutes() *mux.Router {
 	r.HandleFunc("/api/logweight", getLogWeightHandler).Methods("GET")
 	r.HandleFunc("/api/pluginusage", getPluginUsageHandler).Methods("GET")
 
+	// Log files
+	r.HandleFunc("/api/logfiles", listLogFilesHandler).Methods("GET")
+	r.HandleFunc("/api/logfiles/{fileName:.*}", getLogFileHandler).Methods("GET")
+
 	// Restart
 	r.HandleFunc("/api/restart", restartHandler).Methods("POST")
 
