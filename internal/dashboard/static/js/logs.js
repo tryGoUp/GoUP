@@ -115,6 +115,7 @@ export default {
             {
               id: "closeBtn",
               text: "Close",
+              icon: "close",
               onClick: () => Modal.hide("logModal"),
             },
           ],

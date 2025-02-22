@@ -31,6 +31,7 @@ export default {
             {
               id: "edit-json-btn",
               text: "Edit",
+              icon: "edit",
               onClick: () => {
                 Modal.setTitle("site-json-modal", `Editing ${domain}'s JSON`);
                 Modal.toggleButton("site-json-modal", "edit-json-btn", false);
@@ -44,6 +45,7 @@ export default {
               id: "save-json-btn",
               text: "Save Changes",
               hidden: true,
+              icon: "save",
               onClick: async () => {
                 const newConfig = document.getElementById("json-editor").value;
                 await fetch(`/api/sites/${domain}`, {
